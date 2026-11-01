@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Teletext">
+<meta name="theme-color" content="#0000c8">
+<meta name="format-detection" content="telephone=no">
+<title>Teletext News</title>
+<style>
+  html { -webkit-text-size-adjust:100%; text-size-adjust:100%; -webkit-tap-highlight-color:transparent; }
+  html,body { margin:0; background:#000; color:#fff; min-height:100%; }
+  body { padding-left:env(safe-area-inset-left,0px); padding-right:env(safe-area-inset-right,0px); padding-top:env(safe-area-inset-top,0px); }
+  body { font-family: "Courier New", "DejaVu Sans Mono", "Noto Sans Mono CJK JP", "Noto Sans JP", monospace;
+         font-size: 22px; line-height: 1.25; padding-bottom: 12px; }
+  .head { background:#0000c8; color:#fff; font-weight:bold; padding:6px 12px; display:flex; justify-content:space-between; }
+  .row { display:flex; align-items:stretch; margin-top:10px; height:1.9em; }
+  .label { flex:0 0 7.2em; color:#000; font-weight:bold; padding:0 .5em; display:flex; align-items:center; white-space:nowrap; }
+  .win { flex:1; overflow:hidden; display:flex; align-items:center; }
+  .track { display:inline-flex; white-space:nowrap; will-change:transform; -webkit-animation: scroll linear infinite; animation: scroll linear infinite; }
+  .track span { padding-right: 3em; font-weight:bold; }
+  @-webkit-keyframes scroll { from { -webkit-transform: translateX(0); } to { -webkit-transform: translateX(-50%); } }
+  @keyframes scroll { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+  body.paused .track { -webkit-animation-play-state: paused; animation-play-state: paused; }
+  .c0{color:#0ff}.c1{color:#ff0}.c2{color:#0f0}.c3{color:#fff}.c4{color:#f0f}.c5{color:#f44}
+  .b0{background:#0ff}.b1{background:#ff0}.b2{background:#0f0}.b3{background:#fff}.b4{background:#f0f}.b5{background:#f44}
+  .foot { background:#fff; color:#000; padding:5px 12px; margin-top:14px; font-size:16px; }
+  .foot { padding-bottom:calc(8px + env(safe-area-inset-bottom,0px)); }
+  .foot button { font: inherit; margin:0 8px 6px 0; padding:8px 12px; min-height:40px; cursor:pointer; }
+  @media (max-width:700px) {
+    body { font-size:15px; }
+    .head { padding:6px 10px; font-size:13px; }
+    .label { flex-basis:6.4em; padding:0 .35em; }
+    .row { margin-top:8px; }
+    .foot { font-size:14px; padding-left:10px; padding-right:10px; }
+  }
+</style>
+</head>
+<body>
+<div class="head"><span>P100 &nbsp;TELETEXT NEWS</span><span id="clock"></span></div>
+<div id="rows"></div>
+<div class="foot">
+  <button id="pause">Pause</button>
+  <button id="slower">Slower</button>
+  <button id="faster">Faster</button>
+  <button id="refresh">Refresh now</button>
+  <span id="speedlabel"></span>
+</div>
+
+<script>
+"use strict";
+const SEP = "  ■  ";
+let speed = 90; // pixels per second
+
+// ---------- fetch helpers ----------
+async function getJSON(url, ms = 12000) {
+  const ctl = (typeof AbortController !== "undefined") ? new AbortController() : null;
+  const t = setTimeout(() => { if (ctl) ctl.abort(); }, ms);
+  try {
+    const r = await fetch(url, ctl ? { signal: ctl.signal, cache: "no-store" } : { cache: "no-store" });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    return await r.json();
+  } finally { clearTimeout(t); }
+}
+const clean = s => String(s || "").replace(/<[^>]+>/g, " ").replace(/&amp;/g, "&").replace(/&quot;/g, '"')
+  .replace(/&#0?39;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/\s+/g, " ").trim();
+
+// RSS through rss2json (a free converter that allows browser access)
+async function rss(url, n = 8) {
+  const d = await getJSON("https://api.rss2json.com/v1/api.json?rss_url=" + encodeURIComponent(url));
+  if (d.status !== "ok" || !d.items || !d.items.length) throw new Error("empty feed");
+  return d.items.slice(0, n).map(i => clean(i.title)).filter(Boolean).join(SEP);
+}
+const gnews = (q, hl = "en-US", gl = "US", ceid = "US:en", n = 8) =>
+  rss(`https://news.google.com/rss/search?q=${encodeURIComponent(q)}&hl=${hl}&gl=${gl}&ceid=${ceid}`, n);
+
+async function firstOk(...fns) {
+  let err;
+  for (const f of fns) { try { return await f(); } catch (e) { err = e; } }
+  throw err;
+}
+
+// ---------- sky (computed locally, always today) ----------
+const SIGNS = ["aries","taurus","gemini","cancer","leo","virgo","libra","scorpio","sagittarius","capricorn","aquarius","pisces"];
+const GLYPH = ["♈","♉","♊","♋","♌","♍","♎","♏","♐","♑","♒","♓"];
+const cap = s => s[0].toUpperCase() + s.slice(1);
+function skyToday() {
+  const rad = x => x * Math.PI / 180, sin = x => Math.sin(rad(x)), cos = x => Math.cos(rad(x));
+  const now = new Date();
+  const jd = now.getTime() / 86400000 + 2440587.5;
+  const T = (jd - 2451545.0) / 36525.0;
+  const M = 357.52911 + 35999.05029 * T;
+  const sun = (((280.46646 + 36000.76983 * T) + 1.914602 * sin(M) + 0.019993 * sin(2 * M)) % 360 + 360) % 360;
+  const Lm = 218.3164477 + 481267.88123421 * T, D = 297.8501921 + 445267.1114034 * T;
+  const Mp = 134.9633964 + 477198.8675055 * T, F = 93.2720950 + 483202.0175233 * T;
+  const moon = ((Lm + 6.289 * sin(Mp) + 1.274 * sin(2 * D - Mp) + 0.658 * sin(2 * D) + 0.214 * sin(2 * Mp)
+    - 0.186 * sin(M) - 0.114 * sin(2 * F)) % 360 + 360) % 360;
+  const elong = ((moon - sun) % 360 + 360) % 360;
+  const illum = (1 - cos(elong)) / 2 * 100;
+  const phases = ["New Moon","Waxing Crescent","First Quarter","Waxing Gibbous","Full Moon","Waning Gibbous","Last Quarter","Waning Crescent"];
+  const phase = phases[Math.floor(((elong + 22.5) % 360) / 45)];
+  const si = Math.floor(sun / 30), mi = Math.floor(moon / 30);
+  const date = now.toLocaleDateString("en-GB", { weekday: "short", day: "2-digit", month: "short", year: "numeric" });
+  return `${date} - Sun in ${cap(SIGNS[si])} ${GLYPH[si]} - Moon in ${cap(SIGNS[mi])} ${GLYPH[mi]} (${phase}, ${Math.round(illum)}% lit)`;
+}
+
+// ---------- the ten lines ----------
+const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const WMO = {0:"Clear",1:"Mostly clear",2:"Partly cloudy",3:"Overcast",45:"Fog",48:"Rime fog",51:"Light drizzle",53:"Drizzle",
+  55:"Heavy drizzle",56:"Freezing drizzle",57:"Freezing drizzle",61:"Light rain",63:"Rain",65:"Heavy rain",66:"Freezing rain",
+  67:"Freezing rain",71:"Light snow",73:"Snow",75:"Heavy snow",77:"Snow grains",80:"Showers",81:"Showers",82:"Violent showers",
+  85:"Snow showers",86:"Snow showers",95:"Thunderstorm",96:"Thunderstorm, hail",99:"Thunderstorm, hail"};
+const LEB_SITES = ["naharnet.com","today.lorientlejour.com","dailystar.com.lb","nna-leb.gov.lb","lbcgroup.tv","mtv.com.lb"];
+
+const LINES = [
+  { num: 1, tag: "INTL", color: 0, every: 600, fn: () => firstOk(
+      () => rss("http://feeds.bbci.co.uk/news/world/rss.xml"),
+      () => gnews("world news when:1d")) },
+  { num: 2, tag: "FRANCE", color: 1, every: 600, fn: () => firstOk(
+      () => rss("https://www.francetvinfo.fr/titres.rss"),
+      () => rss("https://www.lemonde.fr/rss/une.xml"),
+      () => gnews("actualités France when:1d", "fr", "FR", "FR:fr")) },
+  { num: 3, tag: "LIBAN", color: 2, every: 900, fn: () => firstOk(
+      () => gnews("(" + LEB_SITES.map(s => "site:" + s).join(" OR ") + ") when:2d", "en", "LB", "LB:en"),
+      () => gnews("(site:lorientlejour.com OR site:lbcgroup.tv) when:2d", "fr", "LB", "LB:fr"),
+      () => gnews("Liban Beyrouth actualité when:1d", "fr", "LB", "LB:fr")) },
+  { num: 4, tag: "JAPAN", color: 3, every: 600, fn: () => firstOk(
+      () => rss("https://www3.nhk.or.jp/rss/news/cat0.xml"),
+      () => gnews("日本 ニュース", "ja", "JP", "JP:ja")) },
+  { num: 5, tag: "ECON", color: 4, every: 900, fn: () => firstOk(
+      () => gnews("global economy when:1d"),
+      () => rss("http://feeds.bbci.co.uk/news/business/rss.xml")) },
+  { num: 6, tag: "MARKET", color: 5, every: 300, fn: async () => {
+      const parts = [];
+      try { const g = await getJSON("https://api.gold-api.com/price/XAU", 8000);
+            parts.push("GOLD $" + Number(g.price).toLocaleString("en-US", { maximumFractionDigits: 1 })); }
+      catch (e) { parts.push("GOLD n/a"); }
+      try { const r = (await getJSON("https://open.er-api.com/v6/latest/USD", 8000)).rates;
+            parts.push("EUR/USD " + (1 / r.EUR).toFixed(4)); parts.push("USD/JPY " + r.JPY.toFixed(2)); }
+      catch (e) { parts.push("EUR/USD n/a"); parts.push("USD/JPY n/a"); }
+      let news = "";
+      try { news = await firstOk(
+        () => rss("https://search.cnbc.com/rs/search/combinedcombinedcms/view.xml?partnerId=wrss01&id=10000664", 6),
+        () => gnews("stock markets when:1d", "en-US", "US", "US:en", 6)); } catch (e) {}
+      return parts.concat(news ? [news] : []).join(SEP);
+    } },
+  { num: 7, tag: "SPACE", color: 0, every: 1800, fn: () => firstOk(
+      () => rss("https://www.nasa.gov/news-release/feed/"),
+      () => gnews("astronomy OR telescope OR asteroid when:3d")) },
+  { num: 8, tag: "WEATHR", color: 1, every: 900, fn: async () => {
+      const cities = [["PARIS", 48.8566, 2.3522], ["MONTPELLIER", 43.6108, 3.8767], ["TOKYO", 35.6762, 139.6503]];
+      const out = await Promise.all(cities.map(async ([name, la, lo]) => {
+        try {
+          const d = await getJSON(`https://api.open-meteo.com/v1/forecast?latitude=${la}&longitude=${lo}` +
+            `&current=temperature_2m,weather_code&daily=temperature_2m_max,temperature_2m_min&timezone=auto&forecast_days=1`, 9000);
+          return `${name} ${Math.round(d.current.temperature_2m)}°C ${WMO[d.current.weather_code] || "Weather " + d.current.weather_code}` +
+                 ` (min ${Math.round(d.daily.temperature_2m_min[0])} / max ${Math.round(d.daily.temperature_2m_max[0])})`;
+        } catch (e) { return name + " n/a"; }
+      }));
+      return out.join(SEP);
+    } },
+  { num: 9, tag: "QUAKE", color: 2, every: 600, fn: async () => {
+      const d = await getJSON("https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/4.5_day.geojson");
+      const f = d.features.sort((a, b) => (b.properties.mag || 0) - (a.properties.mag || 0)).slice(0, 8);
+      if (!f.length) return "No earthquake of magnitude 4.5+ recorded in the last 24 hours";
+      return f.map(x => `M${x.properties.mag.toFixed(1)} ${x.properties.place} ` +
+        new Date(x.properties.time).toISOString().substr(11, 5) + " UTC").join(SEP);
+    } },
+  { num: 10, tag: "STARS", color: 3, every: 3600, fn: async () => {
+      const sky = skyToday();               // always correct for today
+      const today = new Date();
+      const todayKey = `${MONTHS[today.getMonth()]} ${String(today.getDate()).padStart(2,"0")}, ${today.getFullYear()}`;
+      const alt = `${MONTHS[today.getMonth()]} ${today.getDate()}, ${today.getFullYear()}`;
+      const res = await Promise.all(SIGNS.map(async (sg, i) => {
+        try {
+          const d = (await getJSON(`https://horoscope-app-api.vercel.app/api/v1/get-horoscope/daily?sign=${cap(sg)}&day=TODAY`, 8000)).data;
+          if (d.date === todayKey || d.date === alt) {
+            let t = clean(d.horoscope_data); if (t.length > 150) t = t.slice(0, 150).replace(/\s+\S*$/, "") + "...";
+            return `${GLYPH[i]} ${sg.toUpperCase()}: ${t}`;
+          }
+        } catch (e) {}
+        return null;
+      }));
+      return [sky].concat(res.filter(Boolean)).join(SEP);
+    } },
+  { num: 11, tag: "SYNDIC", color: 4, every: 900, fn: () => firstOk(
+      () => gnews("(syndicats OR CGT OR CFDT OR \"Force Ouvri\u00e8re\" OR CFTC OR CFE-CGC OR UNSA OR Solidaires OR intersyndicale) when:3d", "fr", "FR", "FR:fr"),
+      () => gnews("syndicats gr\u00e8ve France when:3d", "fr", "FR", "FR:fr")) },
+];
+
+// ---------- display ----------
+const rowsEl = document.getElementById("rows");
+for (const L of LINES) {
+  const row = document.createElement("div"); row.className = "row";
+  const label = document.createElement("div"); label.className = "label b" + L.color;
+  label.textContent = String(L.num).padStart(2, " ") + " " + L.tag;
+  const win = document.createElement("div"); win.className = "win";
+  const track = document.createElement("div"); track.className = "track c" + L.color;
+  win.appendChild(track); row.appendChild(label); row.appendChild(win); rowsEl.appendChild(row);
+  L.track = track; L.text = null; L.ok = false;
+  setText(L, "Loading...");
+}
+function setDuration(L) {
+  const w = L.track.firstElementChild.getBoundingClientRect().width || 1000;
+  L.track.style.animationDuration = Math.max(10, w / speed) + "s";
+}
+function setText(L, text) {
+  L.text = text; L.track.innerHTML = "";
+  for (let i = 0; i < 2; i++) { const s = document.createElement("span"); s.textContent = text + "  ●"; L.track.appendChild(s); }
+  L.track.style.animationDelay = (-(L.num * 7.3)) + "s";
+  setDuration(L);
+}
+async function update(L) {
+  clearTimeout(L.timer);
+  try { const t = await L.fn(); L.ok = true; L.last = Date.now(); if (t !== L.text) setText(L, t); }
+  catch (e) { if (!L.ok) setText(L, "Unavailable (" + (e && e.message || e) + ") - retrying"); }
+  L.timer = setTimeout(() => update(L), (L.ok ? L.every : 60) * 1000);
+}
+LINES.forEach(update);
+// iOS freezes timers while the page is in the background: refresh stale lines on return.
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") LINES.forEach(L => { if (!L.last || Date.now() - L.last > L.every * 1000) update(L); });
+});
+
+function updSpeed() { document.getElementById("speedlabel").textContent = "speed " + speed + " px/s"; LINES.forEach(setDuration); }
+document.getElementById("pause").onclick = e => { document.body.classList.toggle("paused");
+  e.target.textContent = document.body.classList.contains("paused") ? "Resume" : "Pause"; };
+document.getElementById("slower").onclick = () => { speed = Math.max(20, speed - 15); updSpeed(); };
+document.getElementById("faster").onclick = () => { speed = Math.min(300, speed + 15); updSpeed(); };
+document.getElementById("refresh").onclick = () => LINES.forEach(update);
+setInterval(() => { document.getElementById("clock").textContent =
+  new Date().toLocaleString("en-GB", { weekday: "short", day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" }); }, 1000);
+updSpeed();
+</script>
+</body>
+</html>
