@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Stratego</title>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;800&family=Spectral:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{color-scheme:light dark;--bg:#d9d2c0;--fg:#241d12;--panel:#efe9d8;--muted:#6a5e45;--red:#b3262d;--red2:#7c1219;--blue:#2757a8;--blue2:#14305f;--brass:#c9a24a;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#10141b;--fg:#ece4d0;--panel:#1a2029;--muted:#9a917b}}
+:root[data-theme=dark]{--bg:#10141b;--fg:#ece4d0;--panel:#1a2029;--muted:#9a917b}
+*{box-sizing:border-box}
+body{margin:0;background:radial-gradient(ellipse at 50% 0,var(--panel),var(--bg) 70%);color:var(--fg);font-family:Spectral,Georgia,serif;min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:12px}
+h1{font-family:Cinzel,Georgia,serif;font-weight:800;letter-spacing:.18em;margin:4px 0 2px;font-size:clamp(22px,5vw,34px);color:var(--brass);text-shadow:0 2px 0 rgba(0,0,0,.35)}
+#status{min-height:26px;font-size:17px;margin:4px 0 8px;text-align:center}
+#wrap{width:min(96vw,74vh,660px);position:relative}
+#board{container-type:inline-size;width:100%;aspect-ratio:1;display:grid;grid-template-columns:repeat(10,1fr);padding:2.2%;border-radius:14px;background:linear-gradient(145deg,#5a3b1e,#3a2410);box-shadow:0 18px 40px rgba(0,0,0,.45),inset 0 0 0 2px #7d5a30,inset 0 0 30px rgba(0,0,0,.5);gap:0}
+.c{position:relative;aspect-ratio:1;background:#8aa05a;box-shadow:inset 0 0 0 1px rgba(40,50,10,.35)}
+.c:nth-child(odd){background:#94a962}
+.c.l{background:linear-gradient(135deg,#2f6fa3,#1f4f80);overflow:hidden}
+.c.l::after{content:"";position:absolute;inset:0;background:repeating-linear-gradient(115deg,transparent 0 9px,rgba(255,255,255,.14) 9px 11px);animation:w 6s linear infinite}
+@keyframes w{to{background-position:60px 0}}
+.c.sel{box-shadow:inset 0 0 0 3px var(--brass)}
+.c.mv::before{content:"";position:absolute;inset:34%;border-radius:50%;background:rgba(255,235,150,.85);box-shadow:0 0 12px #ffe58a;z-index:2;animation:p 1s ease-in-out infinite}
+.c.mv.at::before{inset:6%;background:none;border:3px solid #ff5d4a;box-shadow:0 0 12px #ff5d4a}
+@keyframes p{50%{transform:scale(1.25)}}
+.c.fl{animation:f .9s}
+@keyframes f{0%{box-shadow:inset 0 0 0 40px rgba(255,200,60,.9)}100%{box-shadow:inset 0 0 0 40px rgba(255,200,60,0)}}
+.pc{position:absolute;inset:7%;border-radius:12%;display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:Cinzel,Georgia,serif;font-weight:800;color:#fff;cursor:default;
+box-shadow:0 3px 0 rgba(0,0,0,.55),0 5px 8px rgba(0,0,0,.4),inset 0 2px 0 rgba(255,255,255,.35),inset 0 -3px 6px rgba(0,0,0,.35);transition:transform .15s}
+.pc.me{background:radial-gradient(circle at 30% 25%,#e2565b,var(--red) 55%,var(--red2));cursor:pointer}
+.pc.me:hover{transform:translateY(-3px)}
+.pc.en{background:radial-gradient(circle at 30% 25%,#5b8fe0,var(--blue) 55%,var(--blue2))}
+.pc.hid{font-size:6.2cqw;opacity:.95}
+.pc.hid::after{content:"";position:absolute;inset:18%;border:2px solid rgba(255,255,255,.35);border-radius:50%}
+.pc.hid::before{content:"";position:absolute;width:44%;height:2px;background:rgba(255,255,255,.35);transform:rotate(45deg)}
+.pc .n{font-size:5.4cqw;line-height:1;text-shadow:0 2px 2px rgba(0,0,0,.5)}
+.pc .s{font-size:1.9cqw;font-family:Spectral,Georgia,serif;font-weight:600;letter-spacing:.03em;opacity:.92;margin-top:.4cqw}
+.pc.seen{outline:2px dashed rgba(255,255,255,.65);outline-offset:-4px}
+.pc.mvd{animation:pop .35s}
+@keyframes pop{0%{transform:scale(1.3)}100%{transform:scale(1)}}
+#bar{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;margin:12px 0 4px}
+button{font:600 15px Spectral,Georgia,serif;padding:9px 18px;border-radius:8px;border:1px solid var(--brass);background:linear-gradient(var(--brass),#9c7a2c);color:#1d1507;cursor:pointer;box-shadow:0 3px 0 #5f4915}
+button:active{transform:translateY(2px);box-shadow:0 1px 0 #5f4915}
+button.g{background:transparent;color:var(--fg);box-shadow:none}
+button:focus-visible{outline:3px solid var(--fg);outline-offset:2px}
+#log{width:min(96vw,660px);font-size:15px;color:var(--muted);text-align:center;min-height:22px;margin-top:6px}
+#ov{position:fixed;inset:0;background:rgba(5,8,12,.72);display:none;align-items:center;justify-content:center;z-index:9;padding:20px}
+#ov.on{display:flex}
+#ov div{background:var(--panel);border:2px solid var(--brass);border-radius:14px;padding:28px 34px;text-align:center;max-width:380px}
+#ov h2{font-family:Cinzel,Georgia,serif;font-size:30px;margin:0 0 8px;color:var(--brass)}
+#help{max-width:660px;font-size:14px;color:var(--muted);margin:14px 0 20px;line-height:1.5;text-align:center}
+#duel{position:absolute;inset:0;display:none;align-items:center;justify-content:center;flex-direction:column;gap:12px;pointer-events:none;z-index:5;background:rgba(8,10,14,.62);border-radius:14px}
+#duel.on{display:flex;animation:fi .2s}
+@keyframes fi{from{opacity:0}}
+#duel .dl{display:flex;align-items:center;gap:clamp(10px,4vw,28px)}
+#duel .vs{font:800 22px Cinzel,Georgia,serif;color:var(--brass)}
+#duel .big{display:flex;flex-direction:column;align-items:center;gap:8px}
+#duel .bx{position:relative;width:clamp(76px,22vw,120px);aspect-ratio:1;animation:flip .5s}
+@keyframes flip{from{transform:rotateY(90deg) scale(.8)}}
+#duel .bx .pc{inset:0}
+#duel .pc .n{font-size:clamp(30px,9vw,48px)}
+#duel .pc .s{font-size:clamp(11px,2.6vw,14px)}
+#duel small{font:600 14px Spectral,Georgia,serif;color:#ece4d0}
+#duel .rs{font:600 17px Spectral,Georgia,serif;color:#ece4d0;text-align:center}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style></head><body>
+<h1>STRATEGO</h1>
+<div id="status"></div>
+<div id="wrap"><div id="board" role="grid" aria-label="Stratego board"></div><div id="duel"></div></div>
+<div id="bar"></div>
+<div id="log"></div>
+<p id="help">Move one piece per turn. Higher rank wins a fight, equal ranks both fall. Scouts slide any distance. Miners defuse bombs, the Spy beats the Marshal only when it attacks. Capture the enemy Flag, or leave them with nothing that can move.</p>
+<div id="ov"><div><h2 id="ot"></h2><p id="od"></p><button id="again">Play again</button></div></div>
+<script>
+const N=["Flag","Spy","Scout","Miner","Sergeant","Lieutenant","Captain","Major","Colonel","General","Marshal","Bomb"];
+const CNT=[1,1,8,5,4,4,4,3,2,1,1,6];
+const LAKE=new Set(["4,2","4,3","5,2","5,3","4,6","4,7","5,6","5,7"]);
+let B,phase,turn,sel,moves,last,fl,busy,pick;
+const $=s=>document.querySelector(s);
+const sym=v=>v==0?"🚩":v==11?"💣":v==1?"S":v;
+function mkSide(o,r0){const a=[];CNT.forEach((n,v)=>{for(let i=0;i<n;i++)a.push({v,o,seen:false})});
+for(let i=a.length-1;i>0;i--){const j=Math.random()*(i+1)|0;[a[i],a[j]]=[a[j],a[i]]}
+// keep flag toward the back row for a sensible setup
+const fi=a.findIndex(p=>p.v==0),back=o==0?30:0+Math.floor(Math.random()*10);
+let k=0;for(let r=r0;r<r0+4;r++)for(let c=0;c<10;c++)B[r][c]=a[k++];
+}
+function shuffleMe(){for(let r=6;r<10;r++)for(let c=0;c<10;c++)B[r][c]=null;mkSide(0,6);
+// put flag in back row, guarded by a bomb or two
+let f=null;for(let r=6;r<10;r++)for(let c=0;c<10;c++)if(B[r][c].v==0)f=[r,c];
+const c2=Math.random()*10|0,t=B[9][c2];B[9][c2]=B[f[0]][f[1]];B[f[0]][f[1]]=t}
+function init(){B=Array.from({length:10},()=>Array(10).fill(null));mkSide(1,0);
+let f=null;for(let r=0;r<4;r++)for(let c=0;c<10;c++)if(B[r][c].v==0)f=[r,c];
+const c2=Math.random()*10|0,t=B[0][c2];B[0][c2]=B[f[0]][f[1]];B[f[0]][f[1]]=t;
+shuffleMe();phase="setup";turn=0;sel=null;moves=[];last=null;fl=null;busy=false;pick=null;
+$("#ov").classList.remove("on");$("#log").textContent="";render()}
+function legal(r,c){const p=B[r][c];if(!p||p.v==0||p.v==11)return[];const out=[];
+for(const[dr,dc]of[[1,0],[-1,0],[0,1],[0,-1]]){let y=r+dr,x=c+dc,n=0;
+while(y>=0&&y<10&&x>=0&&x<10&&!LAKE.has(y+","+x)){const q=B[y][x];
+if(q){if(q.o!=p.o)out.push([y,x,1]);break}
+out.push([y,x,0]);if(p.v!=2)break;y+=dr;x+=dc}}
+return out}
+function hasMove(o){for(let r=0;r<10;r++)for(let c=0;c<10;c++)if(B[r][c]&&B[r][c].o==o&&legal(r,c).length)return true;return false}
+function fight(a,d){// returns 'a','d','b'
+if(d.v==0)return"flag";if(d.v==11)return a.v==3?"a":"d";
+if(a.v==1&&d.v==10)return"a";return a.v>d.v?"a":a.v<d.v?"d":"b"}
+function big(p,l){return `<div class="big"><div class="bx"><div class="pc ${p.o?"en":"me"}"><span class="n">${sym(p.v)}</span><span class="s">${N[p.v]}</span></div></div><small>${l}</small></div>`}
+function doMove(r,c,y,x){const a=B[r][c],d=B[y][x];
+if(!d)return apply(r,c,y,x);
+busy=true;sel=null;moves=[];a.seen=d.seen=true;render();
+const box=$("#duel");
+box.innerHTML=`<div class="dl">${big(a,a.o?"Blue attacks":"You attack")}<span class="vs">VS</span>${big(d,a.o?"Your defender":"Blue defends")}</div>`;
+box.classList.add("on");
+setTimeout(()=>{box.classList.remove("on");apply(r,c,y,x)},1500)}
+function apply(r,c,y,x){const a=B[r][c],d=B[y][x];let msg;last=[y,x];fl=null;
+B[r][c]=null;
+if(!d){B[y][x]=a;msg=(a.o?"Blue":"You")+" moved."}
+else{a.seen=d.seen=true;const res=fight(a,d);fl=[y,x];
+const an=N[a.v],dn=N[d.v],who=a.o?"Blue":"Your";
+if(res=="flag"){B[y][x]=a;end(a.o,"The flag was captured!");return}
+if(res=="a"){B[y][x]=a;msg=`${who} ${an} defeats ${a.o?"your":"Blue"} ${dn}.`}
+else if(res=="d"){msg=`${who} ${an} falls to ${a.o?"your":"Blue"} ${dn}.`}
+else{B[y][x]=null;msg=`${who} ${an} and ${a.o?"your":"Blue"} ${dn} destroy each other.`}}
+$("#log").textContent=msg;sel=null;moves=[];
+if(!hasMove(1-a.o)){render();end(a.o,(a.o?"You have":"Blue has")+" no moves left.");return}
+turn=1-a.o;busy=turn==1;render();if(turn==1)setTimeout(ai,750)}
+function end(w,why){phase="over";render();$("#ot").textContent=w==0?"Victory":"Defeat";$("#od").textContent=(w==0?"You win. ":"Blue wins. ")+why;$("#ov").classList.add("on")}
+function ai(){const L=[];
+for(let r=0;r<10;r++)for(let c=0;c<10;c++){const p=B[r][c];if(!p||p.o!=1)continue;
+for(const[y,x,at]of legal(r,c)){let s=Math.random()*2+(y-r)*.6+(Math.abs(y-r)>1?1:0);
+if(at){const d=B[y][x];
+if(d.seen){const f=fight(p,d);s+=f=="flag"?999:f=="a"?10+d.v:f=="b"?(p.v<d.v?1:-3):-30;if(d.v==11&&p.v!=3)s=-40}
+else s+=p.v==2||p.v==1?5:p.v>=9?-4:p.v==3?1:2.5}
+else{if(p.seen&&p.v<5)s-=0}
+L.push([s,r,c,y,x])}}
+L.sort((a,b)=>b[0]-a[0]);busy=false;if(!L.length)return end(0,"Blue cannot move.");
+const m=L[0];doMove(m[1],m[2],m[3],m[4])}
+function click(r,c){if(busy||phase=="over")return;const p=B[r][c];
+if(phase=="setup"){if(r<6||!p)return;if(!pick)pick=[r,c];else{const q=B[pick[0]][pick[1]];B[pick[0]][pick[1]]=B[r][c];B[r][c]=q;pick=null}render();return}
+if(turn!=0)return;
+const m=moves.find(t=>t[0]==r&&t[1]==c);
+if(sel&&m){const[a,b]=sel;doMove(a,b,r,c);return}
+if(p&&p.o==0){const l=legal(r,c);if(l.length){sel=[r,c];moves=l}else{sel=null;moves=[];$("#log").textContent="That piece cannot move."}}else{sel=null;moves=[]}
+render()}
+function render(){const bd=$("#board");bd.innerHTML="";
+let me=0,en=0;
+for(let r=0;r<10;r++)for(let c=0;c<10;c++){const d=document.createElement("div");d.className="c";d.setAttribute("role","gridcell");
+const k=r+","+c;if(LAKE.has(k))d.classList.add("l");
+if(sel&&sel[0]==r&&sel[1]==c)d.classList.add("sel");
+if(pick&&pick[0]==r&&pick[1]==c)d.classList.add("sel");
+const m=moves.find(t=>t[0]==r&&t[1]==c);if(m){d.classList.add("mv");if(m[2])d.classList.add("at")}
+if(fl&&fl[0]==r&&fl[1]==c)d.classList.add("fl");
+const p=B[r][c];
+if(p){p.o==0?me++:en++;const e=document.createElement("div");
+const show=p.o==0||p.seen||phase=="over";
+e.className="pc "+(p.o==0?"me":"en")+(show?"":" hid")+(p.seen?" seen":"")+(last&&last[0]==r&&last[1]==c?" mvd":"");
+if(show){e.innerHTML=`<span class="n">${sym(p.v)}</span><span class="s">${N[p.v]}</span>`}
+if(p.o==0&&phase=="play"&&turn==0&&!legal(r,c).length)e.style.filter="saturate(.55) brightness(.85)";
+e.setAttribute("aria-label",(p.o?"Blue ":"Your ")+(show?N[p.v]:"hidden piece"));
+d.appendChild(e)}
+d.onclick=()=>click(r,c);bd.appendChild(d)}
+$("#status").textContent=phase=="setup"?"Arrange your army: tap two red pieces to swap them":phase=="over"?"Game over":turn==0?`Your move · ${me} pieces vs ${en}`:"Blue is thinking…";
+const bar=$("#bar");bar.innerHTML="";
+if(phase=="setup"){const a=document.createElement("button");a.textContent="Shuffle army";a.onclick=()=>{shuffleMe();pick=null;render()};
+const b=document.createElement("button");b.textContent="Start battle";b.onclick=()=>{phase="play";pick=null;$("#log").textContent="Select a red piece to see where it can go.";render()};bar.append(a,b)}
+else{const a=document.createElement("button");a.className="g";a.textContent="New game";a.onclick=init;bar.append(a)}}
+$("#again").onclick=init;init();
+</script></body></html>

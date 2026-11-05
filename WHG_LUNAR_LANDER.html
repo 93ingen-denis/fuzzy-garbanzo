@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Walid’s Lunar Lander v1.01 by Claude 2026.10</title>
+<style>
+:root{--bg:#000;--ink:#e8f1ea;--warn:#ff5a3c;--ok:#7dffb0;color-scheme:dark;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+html,body{margin:0;height:100%;background:var(--bg);overflow:hidden;overscroll-behavior:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;touch-action:none}
+body{font-family:"Courier New",Courier,monospace;color:var(--ink)}
+canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
+#pad{position:fixed;left:0;right:0;bottom:0;display:flex;gap:10px;padding:10px 12px calc(14px + env(safe-area-inset-bottom,0px));align-items:stretch}
+.b{flex:1;height:84px;border:2px solid var(--ink);border-radius:14px;background:rgba(232,241,234,.06);color:var(--ink);font:700 16px "Courier New",monospace;display:flex;align-items:center;justify-content:center;-webkit-tap-highlight-color:transparent}
+.b.on{background:var(--ink);color:#000}
+#t{flex:1.6;border-color:var(--ok);color:var(--ok)}
+#t.on{background:var(--ok);color:#000}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="pad">
+  <div class="b" id="l">Left</div>
+  <div class="b" id="r">Right</div>
+  <div class="b" id="t">Thrust</div>
+</div>
+<script>
+(function(){
+var cv=document.getElementById('c'),ctx=cv.getContext('2d');
+var W=400,H=700,S=1,dpr=1,cw=0,ch=0;
+function resize(){
+  dpr=Math.min(window.devicePixelRatio||1,3);cw=innerWidth;ch=innerHeight;
+  cv.width=cw*dpr;cv.height=ch*dpr;S=cw/W;H=ch/S;
+}
+addEventListener('resize',resize);resize();
+
+var keys={l:false,r:false,t:false};
+function hold(id,k){
+  var el=document.getElementById(id);
+  function on(e){e.preventDefault();keys[k]=true;el.classList.add('on');}
+  function off(e){e.preventDefault();keys[k]=false;el.classList.remove('on');}
+  el.addEventListener('pointerdown',on);
+  ['pointerup','pointercancel','pointerleave'].forEach(function(n){el.addEventListener(n,off);});
+}
+hold('l','l');hold('r','r');hold('t','t');
+addEventListener('keydown',function(e){
+  if(e.key==='ArrowLeft')keys.l=true;
+  if(e.key==='ArrowRight')keys.r=true;
+  if(e.key==='ArrowUp'||e.key===' ')keys.t=true;
+  if(e.key==='Enter')advance();
+});
+addEventListener('keyup',function(e){
+  if(e.key==='ArrowLeft')keys.l=false;
+  if(e.key==='ArrowRight')keys.r=false;
+  if(e.key==='ArrowUp'||e.key===' ')keys.t=false;
+});
+cv.addEventListener('pointerdown',function(e){e.preventDefault();advance();});
+
+var G=8,THRUST=22,TURN=2.6,STEP=10;
+var best=0;try{best=+localStorage.getItem('ll-best')||0;}catch(e){}
+var state='ready',level=1,score=0,msg='',ship,pts,pads,stars=[],debris=[],lastT=0;
+
+for(var i=0;i<70;i++)stars.push([Math.random(),Math.random(),Math.random()*1.2+.4]);
+
+function rnd(a,b){return a+Math.random()*(b-a);}
+
+function gen(){
+  var n=Math.ceil(W/STEP)+1,lo=H*0.5,hi=H*0.76,y=rnd(lo,hi);
+  pts=[];
+  for(var i=0;i<n;i++){y+=rnd(-16,16);y=Math.max(lo,Math.min(hi,y));pts.push({x:i*STEP,y:y});}
+  var a=Math.floor(rnd(3,13)),b=Math.floor(rnd(24,34));
+  pads=[];
+  [[a,6,1],[b,3,4]].forEach(function(p){
+    var i0=p[0],k=p[1],py=pts[i0].y;
+    for(var j=0;j<k;j++)pts[i0+j].y=py;
+    pads.push({x0:pts[i0].x,x1:pts[i0+k-1].x,y:py,m:p[2]});
+  });
+  if(Math.random()<.5)pads.reverse();
+}
+
+function newGame(){level=1;score=0;startLevel();}
+function startLevel(){
+  gen();
+  ship={x:rnd(60,W-60),y:H*0.1,vx:rnd(-14,14),vy:0,a:0,fuel:450+level*0,thr:false};
+  debris=[];state='play';msg='';
+}
+function advance(){
+  if(state==='ready'||state==='crashed'){newGame();}
+  else if(state==='landed'){level++;startLevel();}
+}
+
+function ground(x){
+  x=Math.max(0,Math.min(W-0.001,x));
+  var i=Math.floor(x/STEP),t=(x-i*STEP)/STEP;
+  return pts[i].y+(pts[i+1].y-pts[i].y)*t;
+}
+
+function crash(why){
+  state='crashed';msg=why;
+  for(var i=0;i<14;i++){var an=rnd(0,6.28),sp=rnd(10,50);
+    debris.push({x:ship.x,y:ship.y,vx:ship.vx*.3+Math.cos(an)*sp,vy:ship.vy*.3+Math.sin(an)*sp-10,r:rnd(0,6.28),w:rnd(-6,6),l:rnd(3,8)});}
+  if(score>best){best=score;try{localStorage.setItem('ll-best',best);}catch(e){}}
+}
+
+function update(dt){
+  if(state==='crashed'){
+    debris.forEach(function(d){d.vy+=G*dt;d.x+=d.vx*dt;d.y+=d.vy*dt;d.r+=d.w*dt;
+      var g=ground(d.x);if(d.y>g){d.y=g;d.vy*=-.3;d.vx*=.6;d.w*=.6;}});
+    return;
+  }
+  if(state!=='play')return;
+  var s=ship;
+  if(keys.l)s.a-=TURN*dt;
+  if(keys.r)s.a+=TURN*dt;
+  s.thr=keys.t&&s.fuel>0;
+  if(s.thr){
+    s.vx+=Math.sin(s.a)*THRUST*dt;
+    s.vy-=Math.cos(s.a)*THRUST*dt;
+    s.fuel=Math.max(0,s.fuel-22*dt);
+  }
+  s.vy+=(G+level*0.4)*dt;
+  s.x+=s.vx*dt;s.y+=s.vy*dt;
+  if(s.x<0)s.x+=W;if(s.x>W)s.x-=W;
+  if(s.y<8){s.y=8;s.vy=Math.max(0,s.vy);}
+  var feet=s.y+8,xl=s.x-6,xr=s.x+6;
+  var gl=ground(xl),gr=ground(xr),gm=ground(s.x);
+  if(feet>=Math.min(gl,gr,gm)){
+    var pad=null;
+    pads.forEach(function(p){if(xl>=p.x0-1&&xr<=p.x1+1)pad=p;});
+    var an=((s.a%6.2832)+6.2832)%6.2832;if(an>3.1416)an-=6.2832;
+    if(!pad)crash('Crashed. Land on a flat pad.');
+    else if(Math.abs(an)>0.2)crash('Crashed. Too tilted.');
+    else if(s.vy>14)crash('Crashed. Too fast down.');
+    else if(Math.abs(s.vx)>9)crash('Crashed. Too much sideways speed.');
+    else{
+      var pts_=Math.round((100+s.fuel/3)*pad.m);
+      score+=pts_;s.y=pad.y-8;s.vx=s.vy=0;s.a=0;s.thr=false;state='landed';
+      msg='Landed! +'+pts_;
+      if(score>best){best=score;try{localStorage.setItem('ll-best',best);}catch(e){}}
+    }
+  }
+}
+
+function line(x1,y1,x2,y2){ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);}
+
+function drawShip(s,t){
+  ctx.save();ctx.translate(s.x,s.y);ctx.rotate(s.a);
+  ctx.beginPath();
+  // body
+  line(-5,-8,5,-8);line(5,-8,8,-3);line(8,-3,8,2);line(8,2,5,5);
+  line(5,5,-5,5);line(-5,5,-8,2);line(-8,2,-8,-3);line(-8,-3,-5,-8);
+  // legs
+  line(-6,5,-10,10);line(6,5,10,10);line(-12,10,-8,10);line(12,10,8,10);
+  // nozzle
+  line(-3,5,-4,8);line(3,5,4,8);line(-4,8,4,8);
+  ctx.stroke();
+  if(s.thr){
+    ctx.beginPath();var f=8+Math.random()*7;
+    line(-3,9,0,9+f);line(0,9+f,3,9);
+    ctx.strokeStyle='#ffb347';ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function text(str,x,y,col,al,sz){
+  ctx.fillStyle=col||'#e8f1ea';ctx.textAlign=al||'left';
+  ctx.font='700 '+(sz||14)+'px "Courier New",monospace';ctx.fillText(str,x,y);
+}
+
+function draw(t){
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.fillStyle='#000';ctx.fillRect(0,0,cw,ch);
+  stars.forEach(function(s){ctx.fillStyle='rgba(232,241,234,'+(0.25+s[2]*.3)+')';ctx.fillRect(s[0]*cw,s[1]*ch*0.7,s[2],s[2]);});
+  var top=env();
+  ctx.setTransform(dpr*S,0,0,dpr*S,0,0);
+  ctx.lineWidth=1.5/1;ctx.lineJoin='round';ctx.lineCap='round';
+  if(pts){
+    ctx.strokeStyle='#e8f1ea';ctx.beginPath();
+    pts.forEach(function(p,i){i?ctx.lineTo(p.x,p.y):ctx.moveTo(p.x,p.y);});ctx.stroke();
+    pads.forEach(function(p){
+      ctx.strokeStyle='#7dffb0';ctx.lineWidth=3;ctx.beginPath();line(p.x0,p.y,p.x1,p.y);ctx.stroke();
+      ctx.lineWidth=1.5;
+      ctx.font='700 9px "Courier New",monospace';ctx.fillStyle='#7dffb0';ctx.textAlign='center';
+      ctx.fillText('x'+p.m,(p.x0+p.x1)/2,p.y+14);
+    });
+  }
+  if(ship&&state!=='crashed'){ctx.strokeStyle='#e8f1ea';drawShip(ship,t);}
+  if(state==='crashed'){
+    ctx.strokeStyle='#ff5a3c';ctx.beginPath();
+    debris.forEach(function(d){var c=Math.cos(d.r)*d.l,s=Math.sin(d.r)*d.l;line(d.x-c,d.y-s,d.x+c,d.y+s);});
+    ctx.stroke();
+  }
+  // HUD in screen space
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  var y0=top+26,s=ship||{fuel:0,vx:0,vy:0,y:0};
+  text('SCORE '+score,14,y0);
+  text('BEST  '+best,14,y0+20,'#8aa393');
+  var fuelCol=s.fuel<80?'#ff5a3c':'#e8f1ea';
+  text('FUEL  '+Math.round(s.fuel),14,y0+40,fuelCol);
+  var alt=pts&&ship?Math.max(0,Math.round(ground(ship.x)-ship.y-8)):0;
+  var vyOk=s.vy<=14,vxOk=Math.abs(s.vx)<=9;
+  text('ALT '+alt,cw-14,y0,'#e8f1ea','right');
+  text('H '+(s.vx>=0?'+':'')+s.vx.toFixed(0),cw-14,y0+20,vxOk?'#7dffb0':'#ff5a3c','right');
+  text('V '+(s.vy>=0?'+':'')+s.vy.toFixed(0),cw-14,y0+40,vyOk?'#7dffb0':'#ff5a3c','right');
+  // messages
+  var cx=cw/2,cy=ch*0.33;
+  if(state==='ready'){
+    text('Walid’s Lunar Lander',cx,cy,'#e8f1ea','center',22);
+    text('v1.01 by Claude 2026.10',cx,cy+24,'#7dffb0','center',13);
+    text('Rotate with Left and Right.',cx,cy+58,'#8aa393','center',14);
+    text('Thrust to slow your fall.',cx,cy+78,'#8aa393','center',14);
+    text('Touch down gently on a green pad.',cx,cy+98,'#8aa393','center',14);
+    text('Tap to start',cx,cy+136,'#7dffb0','center',18);
+  }else if(state==='landed'){
+    text(msg,cx,cy,'#7dffb0','center',26);
+    text('Tap for the next level',cx,cy+34,'#e8f1ea','center',16);
+  }else if(state==='crashed'){
+    text(msg,cx,cy,'#ff5a3c','center',20);
+    text('Final score '+score,cx,cy+30,'#e8f1ea','center',16);
+    text('Tap to try again',cx,cy+60,'#7dffb0','center',16);
+  }
+}
+function env(){return 0;}
+
+function frame(t){
+  var dt=Math.min(0.05,(t-lastT)/1000||0);lastT=t;
+  update(dt);draw(t);
+  requestAnimationFrame(frame);
+}
+gen();ship={x:W/2,y:H*0.2,vx:0,vy:0,a:0,fuel:450,thr:false};
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
