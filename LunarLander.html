@@ -1,0 +1,396 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Lunar Lander</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap">
+<style>
+/* Layout: one vector monitor, centered, with thrust controls under it for touch and mouse. Single committed look: phosphor-white on black, as on the 1979 cabinet. */
+:root {
+  --bg: #030507;
+  --ink: #e9f2ff;
+  --dim: #7d8ea6;
+  --warn: #ff7a45;
+  --line: #1b2533;
+  --mono: 'Share Tech Mono', ui-monospace, Menlo, Consolas, monospace;
+  color-scheme: dark;
+}
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--mono);
+  padding-block: 20px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.wrap { max-width: 800px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
+.stage { position: relative; background: #000; border: 1px solid var(--line); box-shadow: 0 0 40px rgba(150, 190, 255, 0.07); }
+canvas { display: block; width: 100%; aspect-ratio: 4 / 3; touch-action: none; }
+.menu { position: absolute; left: 50%; top: 50%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.menu p { margin: 0; letter-spacing: 0.2em; color: var(--dim); font-size: clamp(11px, 2.2vw, 15px); }
+.menu .row { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+button { font-family: var(--mono); color: var(--ink); background: transparent; border: 1px solid var(--ink); padding: 10px 16px; font-size: 16px; letter-spacing: 0.12em; cursor: pointer; touch-action: none; user-select: none; -webkit-user-select: none; }
+button:hover, button.on { background: var(--ink); color: #000; }
+button:focus-visible { outline: 2px solid var(--warn); outline-offset: 2px; }
+.pad { display: grid; grid-template-columns: 1fr 2fr 1fr 1fr; gap: 10px; }
+.pad button { min-height: 64px; font-size: 18px; }
+.legend { margin: 0; color: var(--dim); font-size: 13px; line-height: 1.6; }
+.legend b { color: var(--ink); font-weight: normal; }
+</style>
+
+<div class="wrap">
+  <div class="stage">
+    <canvas id="c" aria-label="Écran du jeu Lunar Lander"></canvas>
+    <div class="menu" id="menu">
+      <p>SELECT MISSION</p>
+      <div class="row">
+        <button data-lvl="0">[1] TRAINING</button>
+        <button data-lvl="1">[2] CADET</button>
+        <button data-lvl="2">[3] PRIME</button>
+        <button data-lvl="3">[4] COMMAND</button>
+      </div>
+      <p>C = INSERT COIN (+450 FUEL)</p>
+    </div>
+  </div>
+  <div class="pad">
+    <button id="bL" aria-label="Tourner à gauche">◀</button>
+    <button id="bT" aria-label="Poussée">POUSSÉE</button>
+    <button id="bR" aria-label="Tourner à droite">▶</button>
+    <button id="bC" aria-label="Insérer une pièce">COIN</button>
+  </div>
+  <p class="legend"><b>← →</b> orienter le module · <b>↑</b> ou <b>Espace</b> poussée progressive (plus on maintient, plus elle monte) · <b>C</b> insérer une pièce (+450 carburant) · <b>Entrée</b> ou toucher l'écran pour continuer · <b>M</b> son. Quatre missions, de TRAINING à COMMAND : plus elle est dure, plus la gravité est forte et moins il y a de carburant. Posez-vous sur une zone plate : plus elle est étroite, plus le multiplicateur est élevé. Limites d'un bon atterrissage : vitesse verticale 24, horizontale 12, module droit.</p>
+</div>
+
+<script>
+(() => {
+  const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+  const LW = 800, LH = 600, W = 3200;
+  const INK = '#e9f2ff', WARN = '#ff7a45';
+  let G = 16;
+  const THRUST = 42, ROT = 2.4, BURN = 7.5;
+  const LEVELS = [{ n: 'TRAINING', g: 10, fuel: 1100 }, { n: 'CADET', g: 14, fuel: 750 }, { n: 'PRIME', g: 16, fuel: 600 }, { n: 'COMMAND', g: 20, fuel: 450 }];
+  const SAFE_VY = 24, SAFE_VX = 12, ROUGH_VY = 40, ROUGH_VX = 20, ANG_OK = 0.2;
+  const S = 0.55; /* lander scale */
+  const LP = [[-18, 14], [18, 14], [-8, -9], [8, -9], [0, -13], [-11, 5], [11, 5]].map(([a, b]) => [a * S, b * S]);
+
+  const keys = { left: false, right: false, thrust: false };
+  let state = 'title', score = 0, hi = 0, time = 0, tz = 0, resT = 0, msg = null, deb = [], L = null;
+  let pts = [], pads = [], camX = 0, camY = 300, z = 1, lvName = '';
+  try { hi = parseInt(localStorage.getItem('lunar-hi') || '0', 10) || 0; } catch (e) {}
+
+  /* ---------- audio ---------- */
+  let ac = null, noiseBuf = null, thrGain = null, muted = false;
+  function audioInit() {
+    if (ac) { if (ac.state === 'suspended') ac.resume(); return; }
+    try {
+      ac = new (window.AudioContext || window.webkitAudioContext)();
+      noiseBuf = ac.createBuffer(1, ac.sampleRate * 2, ac.sampleRate);
+      const d = noiseBuf.getChannelData(0);
+      for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+      const src = ac.createBufferSource(); src.buffer = noiseBuf; src.loop = true;
+      const f = ac.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 500;
+      thrGain = ac.createGain(); thrGain.gain.value = 0;
+      src.connect(f); f.connect(thrGain); thrGain.connect(ac.destination); src.start();
+    } catch (e) { ac = null; }
+  }
+  function boom() {
+    if (!ac || muted) return;
+    const s = ac.createBufferSource(); s.buffer = noiseBuf;
+    const f = ac.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 900;
+    const g = ac.createGain(); g.gain.setValueAtTime(0.7, ac.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 1.4);
+    s.connect(f); f.connect(g); g.connect(ac.destination); s.start(); s.stop(ac.currentTime + 1.5);
+  }
+  function beep(freqs) {
+    if (!ac || muted) return;
+    freqs.forEach((fr, i) => {
+      const o = ac.createOscillator(), g = ac.createGain(), t = ac.currentTime + i * 0.14;
+      o.type = 'square'; o.frequency.value = fr;
+      g.gain.setValueAtTime(0.08, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.13);
+      o.connect(g); g.connect(ac.destination); o.start(t); o.stop(t + 0.14);
+    });
+  }
+
+  /* ---------- terrain ---------- */
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  const wrapX = x => ((x % W) + W) % W;
+  function genTerrain() {
+    pts = []; pads = [];
+    const widths = { 5: 26, 4: 35, 3: 47, 2: 62 };
+    const order = [5, 4, 3, 2].sort(() => Math.random() - 0.5);
+    const sw = W / 4;
+    const starts = order.map((m, i) => ({ m, x: i * sw + 120 + Math.random() * (sw - 340) }));
+    let x = 0, y = 420 + Math.random() * 60, pi = 0;
+    pts.push([0, y]);
+    while (x < W - 70) {
+      const p = starts[pi];
+      if (p && x >= p.x) {
+        const w = widths[p.m];
+        pads.push({ x0: x, x1: x + w, y, m: p.m });
+        x += w; pts.push([x, y]); pi++;
+      } else {
+        x += 10 + Math.random() * 34;
+        let dy = (Math.random() - 0.5) * 120;
+        if (Math.random() < 0.18) dy += (Math.random() < 0.5 ? -1 : 1) * (50 + Math.random() * 70);
+        dy += (400 - y) * 0.12;
+        y = clamp(y + dy, 215, 560);
+        pts.push([x, y]);
+      }
+    }
+    pts.push([W, pts[0][1]]);
+  }
+  function terrainY(x) {
+    const xm = wrapX(x);
+    for (let i = 1; i < pts.length; i++) {
+      if (xm <= pts[i][0]) {
+        const a = pts[i - 1], b = pts[i];
+        return a[1] + (b[1] - a[1]) * ((xm - a[0]) / (b[0] - a[0] || 1));
+      }
+    }
+    return pts[pts.length - 1][1];
+  }
+  function padAt(x) {
+    const xm = wrapX(x);
+    return pads.find(p => xm >= p.x0 - 1 && xm <= p.x1 + 1) || null;
+  }
+
+  /* ---------- game flow ---------- */
+  function newLander(fuel) {
+    L = { x: Math.random() * W, y: 40, vx: (Math.random() < 0.5 ? -1 : 1) * (15 + Math.random() * 20), vy: 0, a: 0, fuel, thr: false, th: 0 };
+  }
+  function startGame(lv) {
+    audioInit();
+    G = LEVELS[lv].g; lvName = LEVELS[lv].n;
+    const fuel = LEVELS[lv].fuel;
+    score = 0; time = 0; tz = 0; deb = []; msg = null;
+    genTerrain(); newLander(fuel); state = 'play';
+    document.getElementById('menu').hidden = true;
+  }
+  function nextRound() {
+    if (L.fuel <= 0) { state = 'over'; resT = 0; return; }
+    deb = []; msg = null; tz = 0; genTerrain(); newLander(L.fuel); state = 'play';
+  }
+  function toTitle() { state = 'title'; document.getElementById('menu').hidden = false; }
+  function coin() {
+    audioInit();
+    if (state === 'title') return;
+    L.fuel = Math.min(9999, L.fuel + 450);
+    beep([880, 1320]);
+    if (state === 'over') nextRound();
+  }
+  function advance() {
+    audioInit();
+    if (state === 'result' && resT > 1.2) nextRound();
+    else if (state === 'over' && resT > 1) toTitle();
+  }
+
+  function worldPts() {
+    const c = Math.cos(L.a), s = Math.sin(L.a);
+    return LP.map(([lx, ly]) => [L.x + lx * c - ly * s, L.y + lx * s + ly * c]);
+  }
+  function saveHi() {
+    if (score > hi) { hi = score; try { localStorage.setItem('lunar-hi', String(hi)); } catch (e) {} }
+  }
+  function touchdown() {
+    const p = worldPts(), fl = p[0], fr = p[1];
+    const pa = padAt(fl[0]), pb = padAt(fr[0]);
+    const onPad = pa && pa === pb;
+    const an = ((L.a + Math.PI) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) - Math.PI;
+    const angOK = Math.abs(an) < ANG_OK, avx = Math.abs(L.vx), vy = L.vy;
+    if (onPad && angOK && avx <= SAFE_VX && vy <= SAFE_VY) {
+      const pts_ = 50 * pa.m; score += pts_;
+      msg = ['CONGRATULATIONS', 'THE EAGLE HAS LANDED', '+' + pts_ + ' (' + pa.m + 'X)'];
+      beep([523, 659, 784, 1047]);
+    } else if (onPad && angOK && avx <= ROUGH_VX && vy <= ROUGH_VY) {
+      score += 15; msg = ['ROUGH LANDING', 'SPACECRAFT DAMAGED', '+15'];
+      beep([220, 196]);
+    } else {
+      score += 5; msg = ['YOU HAVE CRASHED', 'NO SURVIVORS', '+5'];
+      L.dead = true; boom();
+      for (let i = 0; i < 16; i++) {
+        const ang = Math.random() * Math.PI * 2, sp = 20 + Math.random() * 70;
+        deb.push({ x: L.x, y: L.y, vx: Math.cos(ang) * sp + L.vx * 0.3, vy: Math.sin(ang) * sp - 30, a: Math.random() * 6, spin: (Math.random() - 0.5) * 8, len: 5 + Math.random() * 9 });
+      }
+    }
+    L.thr = false; L.th = 0; if (thrGain) thrGain.gain.value = 0;
+    saveHi(); state = 'result'; resT = 0;
+  }
+
+  /* ---------- update ---------- */
+  function update(dt) {
+    if (state === 'play') {
+      time += dt;
+      if (keys.left) L.a -= ROT * dt;
+      if (keys.right) L.a += ROT * dt;
+      /* proportional throttle: builds while the key is held, drops when released */
+      if (keys.thrust && L.fuel > 0) L.th = Math.min(1, L.th + dt / 0.6);
+      else L.th = Math.max(0, L.th - dt / 0.25);
+      if (L.fuel <= 0) L.th = 0;
+      L.thr = L.th > 0.02;
+      if (L.thr) {
+        L.vx += Math.sin(L.a) * THRUST * L.th * dt;
+        L.vy -= Math.cos(L.a) * THRUST * L.th * dt;
+        L.fuel = Math.max(0, L.fuel - BURN * L.th * dt);
+      }
+      L.vy += G * dt; L.x = wrapX(L.x + L.vx * dt); L.y += L.vy * dt;
+      if (thrGain && ac) thrGain.gain.setTargetAtTime(L.thr && !muted ? 0.05 + 0.2 * L.th : 0, ac.currentTime, 0.03);
+      const wp = worldPts();
+      if (wp.some(([px, py]) => py >= terrainY(px))) touchdown();
+      if (L.y < -200) { L.y = -200; L.vy = Math.max(L.vy, 0); }
+    } else if (state === 'result' || state === 'over') {
+      resT += dt;
+      for (const d of deb) { d.vy += G * dt; d.x += d.vx * dt; d.y += d.vy * dt; d.a += d.spin * dt; if (d.y > terrainY(d.x)) { d.y = terrainY(d.x); d.vx = 0; d.vy = 0; d.spin = 0; } }
+    }
+    if (state !== 'title') {
+      const h = terrainY(L.x) - L.y;
+      const target = clamp((260 - h) / 160, 0, 1);
+      tz += (target - tz) * Math.min(1, dt * 3);
+    }
+  }
+
+  /* ---------- drawing ---------- */
+  const sx = (wx, off) => (wx + off - camX) * z + LW / 2;
+  const sy = wy => (wy - camY) * z + LH / 2;
+  function txt(s, x, y, size, align, color) {
+    ctx.font = (size * 0.8) + 'px "Share Tech Mono", ui-monospace, monospace';
+    ctx.textAlign = align || 'left'; ctx.fillStyle = color || INK; ctx.fillText(s, x, y);
+  }
+  const pad = (n, k) => String(Math.max(0, Math.round(n))).padStart(k, '0');
+
+  function drawTerrain() {
+    ctx.strokeStyle = INK; ctx.lineWidth = 0.8; ctx.lineJoin = 'miter';
+    for (const off of [-W, 0, W]) {
+      ctx.beginPath();
+      pts.forEach(([px, py], i) => { const X = sx(px, off), Y = sy(py); i ? ctx.lineTo(X, Y) : ctx.moveTo(X, Y); });
+      ctx.stroke();
+      for (const p of pads) {
+        const X0 = sx(p.x0, off), X1 = sx(p.x1, off), Y = sy(p.y);
+        if (X1 < -20 || X0 > LW + 20) continue;
+        ctx.lineWidth = 1.6; ctx.beginPath(); ctx.moveTo(X0, Y); ctx.lineTo(X1, Y); ctx.stroke(); ctx.lineWidth = 0.8;
+        txt(p.m + 'X', (X0 + X1) / 2, Y + 8 + 11 * z, 11 + 3 * z, 'center');
+      }
+    }
+  }
+  function drawLander() {
+    ctx.save();
+    ctx.translate(sx(L.x, 0), sy(L.y)); ctx.rotate(L.a); ctx.scale(z * S, z * S);
+    ctx.lineWidth = 0.8 / (z * S); ctx.strokeStyle = INK; ctx.lineJoin = 'miter';
+    ctx.beginPath();
+    /* ascent stage: faceted cabin */
+    ctx.moveTo(-5, -13); ctx.lineTo(5, -13); ctx.lineTo(8, -9); ctx.lineTo(8, -4); ctx.lineTo(5, -1);
+    ctx.lineTo(-5, -1); ctx.lineTo(-8, -4); ctx.lineTo(-8, -9); ctx.closePath();
+    /* window */
+    ctx.moveTo(-3, -10); ctx.lineTo(3, -10); ctx.lineTo(3, -6); ctx.lineTo(-3, -6); ctx.closePath();
+    /* descent stage: wide trapezoid */
+    ctx.moveTo(-9, -1); ctx.lineTo(9, -1); ctx.lineTo(11, 5); ctx.lineTo(-11, 5); ctx.closePath();
+    /* splayed legs, braces and foot pads */
+    ctx.moveTo(-11, 5); ctx.lineTo(-16, 14); ctx.moveTo(-19, 14); ctx.lineTo(-13, 14);
+    ctx.moveTo(11, 5); ctx.lineTo(16, 14); ctx.moveTo(13, 14); ctx.lineTo(19, 14);
+    ctx.moveTo(-8, -1); ctx.lineTo(-14, 10); ctx.moveTo(8, -1); ctx.lineTo(14, 10);
+    /* engine bell */
+    ctx.moveTo(-3, 5); ctx.lineTo(-5, 10); ctx.lineTo(5, 10); ctx.lineTo(3, 5);
+    ctx.stroke();
+    if (L.thr) {
+      ctx.beginPath(); ctx.moveTo(-3.5, 10.5); ctx.lineTo(0, 15.5 + L.th * 14 + Math.random() * 8 * L.th); ctx.lineTo(3.5, 10.5); ctx.stroke();
+    }
+    ctx.restore();
+  }
+  function drawDebris() {
+    const alpha = clamp(1 - resT / 3, 0, 1);
+    ctx.save(); ctx.globalAlpha = alpha; ctx.lineWidth = 0.8; ctx.strokeStyle = INK;
+    ctx.beginPath();
+    for (const d of deb) {
+      ctx.moveTo(sx(d.x, 0), sy(d.y));
+      ctx.lineTo(sx(d.x, 0) + Math.cos(d.a) * d.len * z, sy(d.y) + Math.sin(d.a) * d.len * z);
+    }
+    ctx.stroke(); ctx.restore();
+  }
+  function drawHUD() {
+    const alt = Math.max(0, terrainY(L.x) - L.y - 14 * S);
+    const hv = L.vx, vv = L.vy;
+    const hBad = Math.abs(hv) > SAFE_VX, vBad = vv > SAFE_VY;
+    txt('SCORE', 18, 28, 15); txt(pad(score, 4), 118, 28, 15);
+    txt('TIME', 18, 50, 15); txt(Math.floor(time / 60) + ':' + pad(time % 60, 2), 118, 50, 15);
+    txt('FUEL', 18, 72, 15, 'left', L.fuel < 100 ? WARN : INK); txt(pad(L.fuel, 4), 118, 72, 15, 'left', L.fuel < 100 ? WARN : INK);
+    txt('ALTITUDE', 650, 28, 15, 'right'); txt(pad(alt, 4), 782, 28, 15, 'right');
+    txt('HORIZONTAL SPEED', 650, 50, 15, 'right');
+    txt(pad(Math.abs(hv), 3) + (hv < 0 ? ' ←' : ' →'), 782, 50, 15, 'right', hBad ? WARN : INK);
+    txt('VERTICAL SPEED', 650, 72, 15, 'right');
+    txt(pad(Math.abs(vv), 3) + (vv > 0 ? ' ↓' : ' ↑'), 782, 72, 15, 'right', vBad ? WARN : INK);
+    txt('THRUST', 18, 94, 15); txt(pad(L.th * 100, 3) + '%', 118, 94, 15);
+    txt(lvName, 400, 28, 13, 'center', '#7d8ea6');
+  }
+  function drawMsg(lines) {
+    ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(170, 150, 460, 120);
+    txt(lines[0], 400, 190, 26, 'center', lines[0].startsWith('YOU') ? WARN : INK);
+    txt(lines[1], 400, 222, 17, 'center');
+    if (lines[2]) txt(lines[2], 400, 250, 15, 'center', '#7d8ea6');
+  }
+
+  function draw() {
+    const k = cv.width / LW;
+    ctx.setTransform(k, 0, 0, k, 0, 0);
+    ctx.fillStyle = '#000'; ctx.fillRect(0, 0, LW, LH);
+    ctx.shadowColor = 'rgba(160,200,255,0.8)'; ctx.shadowBlur = 3;
+    if (state === 'title') {
+      ctx.save();
+      if ('letterSpacing' in ctx) ctx.letterSpacing = '8px';
+      txt('LUNAR LANDER', 404, 150, 58, 'center');
+      ctx.restore();
+      txt('HI-SCORE ' + pad(hi, 4), 400, 200, 17, 'center', '#7d8ea6');
+      return;
+    }
+    z = 1 + 1.0 * tz;
+    camX = L.x; camY = 300 + ((L.y + 40) - 300) * tz;
+    drawTerrain();
+    if (!L.dead) drawLander();
+    if (deb.length) drawDebris();
+    drawHUD();
+    if (state === 'result') {
+      drawMsg(msg);
+      if (resT > 1.2) txt('PRESS ENTER OR TAP TO CONTINUE', 400, 580, 14, 'center', '#7d8ea6');
+    } else if (state === 'over') {
+      drawMsg(['GAME OVER', 'SCORE ' + pad(score, 4) + (score >= hi && score > 0 ? '  NEW HI-SCORE' : ''), 'OUT OF FUEL']);
+      if (resT > 1) txt('ENTER: PLAY AGAIN  ·  C: INSERT COIN TO CONTINUE', 400, 580, 14, 'center', '#7d8ea6');
+    }
+  }
+
+  /* ---------- loop, sizing ---------- */
+  function fit() {
+    const r = cv.getBoundingClientRect(), d = Math.min(window.devicePixelRatio || 1, 2);
+    cv.width = Math.max(1, Math.round(r.width * d)); cv.height = Math.round(cv.width * LH / LW);
+  }
+  window.addEventListener('resize', fit); fit();
+  genTerrain(); newLander(450);
+  let last = performance.now();
+  function frame(now) {
+    const dt = Math.min(0.05, (now - last) / 1000); last = now;
+    update(dt); draw(); requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+
+  /* ---------- input ---------- */
+  const bind = (id, key) => {
+    const b = document.getElementById(id);
+    const on = e => { e.preventDefault(); audioInit(); keys[key] = true; b.classList.add('on'); try { b.setPointerCapture(e.pointerId); } catch (x) {} };
+    const off = () => { keys[key] = false; b.classList.remove('on'); };
+    b.addEventListener('pointerdown', on); b.addEventListener('pointerup', off);
+    b.addEventListener('pointercancel', off); b.addEventListener('lostpointercapture', off);
+    b.addEventListener('contextmenu', e => e.preventDefault());
+  };
+  bind('bL', 'left'); bind('bR', 'right'); bind('bT', 'thrust');
+  const map = { ArrowLeft: 'left', a: 'left', A: 'left', ArrowRight: 'right', d: 'right', D: 'right', ArrowUp: 'thrust', w: 'thrust', W: 'thrust', ' ': 'thrust' };
+  addEventListener('keydown', e => {
+    if (map[e.key]) { e.preventDefault(); keys[map[e.key]] = true; audioInit(); return; }
+    if (e.key === 'Enter') { e.preventDefault(); advance(); }
+    else if (e.key === 'm' || e.key === 'M') { muted = !muted; if (thrGain && muted) thrGain.gain.value = 0; }
+    else if (e.key === 'c' || e.key === 'C') coin();
+    else if (state === 'title' && '1234'.includes(e.key) && e.key.length === 1) startGame(+e.key - 1);
+  });
+  addEventListener('keyup', e => { if (map[e.key]) { keys[map[e.key]] = false; } });
+  addEventListener('blur', () => { keys.left = keys.right = keys.thrust = false; if (thrGain) thrGain.gain.value = 0; });
+  cv.addEventListener('pointerdown', advance);
+  document.querySelectorAll('[data-lvl]').forEach(b => b.addEventListener('click', () => { b.blur(); startGame(+b.dataset.lvl); }));
+  document.getElementById('bC').addEventListener('click', e => { e.currentTarget.blur(); coin(); });
+})();
+</script>
+
+</body></html>
