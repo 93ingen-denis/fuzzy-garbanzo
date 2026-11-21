@@ -1,0 +1,987 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Stratego 3D</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* Layout: a war-table. The 3D board fills the left, a command panel sits on the right and stacks below on phones. */
+:root {
+  --bg: #11171b;
+  --panel: #192127;
+  --panel-2: #222c33;
+  --line: #2d3a43;
+  --fg: #e8edf0;
+  --muted: #93a1ab;
+  --accent: #d9a441;
+  --red: #c8473d;
+  --blue: #3f78c4;
+  --good: #5fbf7a;
+  --font-display: 'Barlow Condensed', 'Arial Narrow', Impact, sans-serif;
+  --font-body: 'Barlow', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { background: var(--bg); }
+body {
+  margin: 0;
+  color: var(--fg);
+  font: 15px/1.45 var(--font-body);
+  padding-block: 14px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.app { max-width: 1280px; margin: 0 auto; display: flex; flex-direction: column; gap: 12px; }
+.top { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+h1 { font: 700 34px/1 var(--font-display); letter-spacing: .08em; text-transform: uppercase; margin: 0; }
+.brand p { margin: 4px 0 0; color: var(--muted); font-size: 14px; }
+.status { display: flex; align-items: center; gap: 10px; background: var(--panel); border: 1px solid var(--line); padding: 8px 14px; border-radius: 999px; font-weight: 600; }
+.dot { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); flex: none; }
+.dot.red { background: var(--red); }
+.dot.blue { background: var(--blue); }
+.dot.good { background: var(--good); }
+
+.layout { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 16px; align-items: start; }
+.stage { position: relative; height: min(78vh, 760px); min-height: 420px; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: #0e1317; }
+.stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; }
+.stage canvas:active { cursor: grabbing; }
+.hud { position: absolute; left: 12px; bottom: 12px; display: flex; gap: 8px; z-index: 2; }
+.hint { position: absolute; right: 12px; bottom: 12px; z-index: 2; font-size: 12px; color: var(--muted); background: rgba(14,19,23,.7); padding: 5px 9px; border-radius: 6px; pointer-events: none; }
+.toast { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 3; max-width: calc(100% - 24px); text-align: center; background: rgba(10,14,17,.88); border: 1px solid var(--line); padding: 8px 14px; border-radius: 8px; font-weight: 500; pointer-events: none; }
+.over { position: absolute; inset: 0; z-index: 4; display: flex; align-items: center; justify-content: center; background: rgba(8,11,14,.6); padding: 16px; }
+.over .box { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 24px 28px; text-align: center; max-width: 360px; }
+.over h2 { font: 700 40px/1 var(--font-display); letter-spacing: .1em; text-transform: uppercase; margin: 0 0 8px; }
+.over p { margin: 0 0 16px; color: var(--muted); }
+
+.panel { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px; min-width: 0; }
+.card h2, .card h3, summary { font: 600 18px/1.2 var(--font-display); letter-spacing: .1em; text-transform: uppercase; margin: 0 0 8px; }
+summary { cursor: pointer; margin: 0; }
+details[open] summary { margin-bottom: 10px; }
+.card p { margin: 0 0 12px; color: var(--muted); font-size: 14px; }
+.counts { display: flex; gap: 14px; font-size: 14px; margin-bottom: 12px; }
+.counts b { font-weight: 600; }
+.actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.btn { font: 600 14px var(--font-body); padding: 9px 14px; border: 1px solid var(--line); background: var(--panel-2); color: var(--fg); border-radius: 6px; cursor: pointer; }
+.btn:hover { border-color: var(--muted); }
+.btn.primary { background: var(--accent); color: #1b1405; border-color: transparent; }
+.btn.small { padding: 6px 10px; font-size: 13px; background: rgba(14,19,23,.8); }
+.btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.cap { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 8px; min-height: 26px; }
+.cap:last-child { margin-bottom: 0; }
+.cap .who { flex: none; width: 74px; font-size: 13px; color: var(--muted); padding-top: 3px; }
+.cap .chips { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
+.cap .none { color: var(--muted); font-size: 13px; padding-top: 3px; }
+.chip { display: inline-flex; align-items: center; justify-content: center; min-width: 26px; height: 26px; padding: 0 4px; border-radius: 5px; font: 700 15px var(--font-display); color: #fff; }
+.chip.red { background: #a8362d; }
+.chip.blue { background: #2a5a9e; }
+.chip.neutral { background: var(--panel-2); border: 1px solid var(--line); color: var(--fg); }
+#log { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: 13.5px; }
+#log li { display: flex; gap: 8px; align-items: baseline; }
+#log li::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; transform: translateY(-1px); }
+#log li.red::before { background: var(--red); }
+#log li.blue::before { background: var(--blue); }
+#log li.empty { color: var(--muted); }
+.ranks { width: 100%; border-collapse: collapse; font-size: 14px; }
+.ranks td { padding: 3px 0; vertical-align: middle; }
+.ranks td:nth-child(2) { padding-left: 10px; }
+.ranks td:last-child { text-align: right; color: var(--muted); }
+.rules { margin: 12px 0 0; padding-left: 18px; color: var(--muted); font-size: 13.5px; display: flex; flex-direction: column; gap: 4px; }
+.fallback { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 24px; text-align: center; color: var(--muted); }
+
+@media (max-width: 900px) {
+  .layout { grid-template-columns: minmax(0, 1fr); }
+  .stage { height: 68vh; min-height: 360px; }
+}
+@media (max-width: 600px) { .hint { display: none; } h1 { font-size: 28px; } }
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+</style>
+
+<div class="app">
+  <header class="top">
+    <div class="brand">
+      <h1>Stratego 3D</h1>
+      <p>You command Red. Find and capture the Blue flag.</p>
+    </div>
+    <div class="status" role="status"><span class="dot" id="dot"></span><span id="statusText">Setup</span></div>
+  </header>
+
+  <main class="layout">
+    <section class="stage" id="stage" aria-label="3D game board">
+      <div class="hud">
+        <button class="btn small" id="btnView" type="button">Reset view</button>
+        <button class="btn small" id="btnTop" type="button">Top view</button>
+      </div>
+      <div class="hint">Drag to orbit. Scroll or pinch to zoom.</div>
+      <div class="toast" id="toast" hidden></div>
+      <div class="over" id="over" hidden>
+        <div class="box">
+          <h2 id="overTitle"></h2>
+          <p id="overText"></p>
+          <button class="btn primary" id="btnAgain" type="button">Play again</button>
+        </div>
+      </div>
+    </section>
+
+    <aside class="panel">
+      <section class="card" id="phaseCard">
+        <h2 id="phaseTitle"></h2>
+        <p id="phaseText"></p>
+        <div class="counts"><span>Red <b id="cntRed">40</b></span><span>Blue <b id="cntBlue">40</b></span></div>
+        <div class="actions">
+          <button class="btn" id="btnShuffle" type="button">Shuffle army</button>
+          <button class="btn primary" id="btnStart" type="button">Begin battle</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <h3>Casualties</h3>
+        <div class="cap"><span class="who">Your losses</span><div class="chips" id="capRed"></div></div>
+        <div class="cap"><span class="who">Blue losses</span><div class="chips" id="capBlue"></div></div>
+      </section>
+
+      <section class="card">
+        <h3>Dispatches</h3>
+        <ol id="log"></ol>
+      </section>
+
+      <details class="card">
+        <summary>Ranks and rules</summary>
+        <table class="ranks" id="ranksTable"></table>
+        <ul class="rules">
+          <li>Pieces move one square up, down or sideways. Scouts move any distance in a straight line.</li>
+          <li>The higher rank wins an attack. Equal ranks destroy each other.</li>
+          <li>Miners defuse Bombs. The Spy defeats the Marshal only when the Spy attacks.</li>
+          <li>Bombs and the Flag never move. Lakes cannot be crossed.</li>
+          <li>Capture the enemy Flag, or leave the enemy with no legal move, to win.</li>
+        </ul>
+      </details>
+
+      <button class="btn" id="btnNew" type="button">New game</button>
+    </aside>
+  </main>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function () {
+'use strict';
+
+/* ---------- Rules data ---------- */
+var RANKS = [
+  { r: 10, l: '10', n: 'Marshal', c: 1 },
+  { r: 9, l: '9', n: 'General', c: 1 },
+  { r: 8, l: '8', n: 'Colonel', c: 2 },
+  { r: 7, l: '7', n: 'Major', c: 3 },
+  { r: 6, l: '6', n: 'Captain', c: 4 },
+  { r: 5, l: '5', n: 'Lieutenant', c: 4 },
+  { r: 4, l: '4', n: 'Sergeant', c: 4 },
+  { r: 3, l: '3', n: 'Miner', c: 5 },
+  { r: 2, l: '2', n: 'Scout', c: 8 },
+  { r: 1, l: 'S', n: 'Spy', c: 1 },
+  { r: 11, l: 'B', n: 'Bomb', c: 6 },
+  { r: 0, l: 'F', n: 'Flag', c: 1 }
+];
+var INFO = {};
+RANKS.forEach(function (i) { INFO[i.r] = i; });
+var VAL = { 0: 2000, 1: 45, 2: 15, 3: 45, 4: 22, 5: 30, 6: 45, 7: 65, 8: 95, 9: 140, 10: 210, 11: 35 };
+var TEAM_NAME = ['Red', 'Blue'];
+var TEAM = {
+  0: { base: '#c0392f', dark: '#7d221b', light: '#f0907f', side: 0x9b2d25, foot: 0x6e1d17 },
+  1: { base: '#2f68b3', dark: '#1d4276', light: '#8dbcf0', side: 0x24508c, foot: 0x183a68 }
+};
+var DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+
+function $(id) { return document.getElementById(id); }
+function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
+function sleep(ms) { return new Promise(function (res) { setTimeout(res, ms); }); }
+function shuffle(a) {
+  for (var i = a.length - 1; i > 0; i--) {
+    var j = Math.floor(Math.random() * (i + 1));
+    var t = a[i]; a[i] = a[j]; a[j] = t;
+  }
+  return a;
+}
+function inBounds(r, c) { return r >= 0 && r < 10 && c >= 0 && c < 10; }
+function isLake(r, c) { return (r === 4 || r === 5) && (c === 2 || c === 3 || c === 6 || c === 7); }
+function xOf(c) { return c - 4.5; }
+function zOf(r) { return r - 4.5; }
+
+/* ---------- Game state ---------- */
+var board, pieces, captured, logEntries, selected, selectedMoves, lastMove;
+var phase = 'setup', turn = 0, busy = false, gameId = 0;
+
+/* ---------- Rules engine ---------- */
+function fightRanks(a, d) {
+  if (d === 0) return 'win';
+  if (d === 11) return a === 3 ? 'win' : 'lose';
+  if (a === 1 && d === 10) return 'win';
+  if (a > d) return 'win';
+  if (a < d) return 'lose';
+  return 'tie';
+}
+function legalMoves(p) {
+  var res = [];
+  if (p.rank === 0 || p.rank === 11) return res;
+  for (var k = 0; k < 4; k++) {
+    var dr = DIRS[k][0], dc = DIRS[k][1];
+    var r = p.r + dr, c = p.c + dc;
+    while (inBounds(r, c) && !isLake(r, c)) {
+      var o = board[r][c];
+      if (!o) {
+        res.push({ r: r, c: c, attack: false });
+        if (p.rank !== 2) break;
+        r += dr; c += dc;
+        continue;
+      }
+      if (o.team !== p.team) res.push({ r: r, c: c, attack: true });
+      break;
+    }
+  }
+  return res;
+}
+function hasMoves(team) {
+  return pieces.some(function (p) { return p.team === team && p.alive && legalMoves(p).length > 0; });
+}
+
+/* ---------- Setup layouts ---------- */
+function generateLayout(team) {
+  var grid = [];
+  for (var i = 0; i < 4; i++) grid.push(new Array(10).fill(null));
+  var pool = [];
+  RANKS.forEach(function (info) { for (var k = 0; k < info.c; k++) pool.push(info.r); });
+  function take(rk) { var ix = pool.indexOf(rk); if (ix >= 0) pool.splice(ix, 1); }
+  function free(pred) {
+    var a = [];
+    for (var lr = 0; lr < 4; lr++) for (var c = 0; c < 10; c++) if (grid[lr][c] === null && pred(lr, c)) a.push([lr, c]);
+    return a;
+  }
+  function pickFree(pred) {
+    var a = free(pred);
+    if (!a.length) a = free(function () { return true; });
+    return a[Math.floor(Math.random() * a.length)];
+  }
+  var fc = Math.floor(Math.random() * 10);
+  grid[0][fc] = 0; take(0);
+  [[0, fc - 1], [0, fc + 1], [1, fc]].forEach(function (g) {
+    if (g[1] >= 0 && g[1] < 10 && grid[g[0]][g[1]] === null) { grid[g[0]][g[1]] = 11; take(11); }
+  });
+  while (pool.indexOf(11) >= 0) { var b = pickFree(function (lr) { return lr <= 1; }); grid[b[0]][b[1]] = 11; take(11); }
+  while (pool.indexOf(2) >= 0) { var s = pickFree(function (lr) { return lr >= 2; }); grid[s[0]][s[1]] = 2; take(2); }
+  shuffle(pool);
+  var cells = shuffle(free(function () { return true; }));
+  cells.forEach(function (cell, idx) { grid[cell[0]][cell[1]] = pool[idx]; });
+  var out = [];
+  for (var lr = 0; lr < 4; lr++) for (var c = 0; c < 10; c++) {
+    out.push({ rank: grid[lr][c], r: team === 0 ? 9 - lr : lr, c: c });
+  }
+  return out;
+}
+
+/* ---------- Three.js scene ---------- */
+var stage = $('stage');
+if (!window.THREE) {
+  stage.insertAdjacentHTML('beforeend', '<div class="fallback">The 3D engine could not be loaded. Check your connection and reload the page.</div>');
+  return;
+}
+var renderer;
+try {
+  renderer = new THREE.WebGLRenderer({ antialias: true });
+} catch (err) {
+  stage.insertAdjacentHTML('beforeend', '<div class="fallback">This browser could not start WebGL, which the 3D board needs.</div>');
+  return;
+}
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+stage.insertBefore(renderer.domElement, stage.firstChild);
+
+var scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0e1317);
+scene.fog = new THREE.Fog(0x0e1317, 28, 56);
+var camera = new THREE.PerspectiveCamera(42, 1, 0.1, 100);
+var lastInv = performance.now();
+function invalidate() { lastInv = performance.now(); }
+
+scene.add(new THREE.HemisphereLight(0xdfe9f2, 0x2a3038, 0.7));
+var sun = new THREE.DirectionalLight(0xfff0d8, 0.8);
+sun.position.set(-6, 14, 9);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.camera.left = -9; sun.shadow.camera.right = 9;
+sun.shadow.camera.top = 9; sun.shadow.camera.bottom = -9;
+sun.shadow.camera.near = 1; sun.shadow.camera.far = 40;
+sun.shadow.bias = -0.0006;
+scene.add(sun);
+
+/* Table and board */
+var table = new THREE.Mesh(new THREE.PlaneGeometry(90, 90), new THREE.MeshStandardMaterial({ color: 0x151d23, roughness: 0.95 }));
+table.rotation.x = -Math.PI / 2; table.position.y = -0.3; table.receiveShadow = true;
+scene.add(table);
+
+var woodMat = new THREE.MeshStandardMaterial({ color: 0x3b2f25, roughness: 0.8 });
+var frame = new THREE.Mesh(new THREE.BoxGeometry(10.9, 0.3, 10.9), woodMat);
+frame.position.y = -0.15; frame.receiveShadow = true; frame.castShadow = true;
+scene.add(frame);
+[[10.9, 0.4, 0, -5.25], [10.9, 0.4, 0, 5.25]].forEach(function (d) {
+  var m = new THREE.Mesh(new THREE.BoxGeometry(d[0], 0.25, d[1]), woodMat);
+  m.position.set(d[2], 0.125, d[3]); m.castShadow = true; m.receiveShadow = true; scene.add(m);
+});
+[-5.25, 5.25].forEach(function (x) {
+  var m = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.25, 10.1), woodMat);
+  m.position.set(x, 0.125, 0); m.castShadow = true; m.receiveShadow = true; scene.add(m);
+});
+
+var tileGeo = new THREE.BoxGeometry(0.98, 0.12, 0.98);
+var lakeGeo = new THREE.BoxGeometry(0.98, 0.04, 0.98);
+var landA = new THREE.MeshStandardMaterial({ color: 0x5a6e42, roughness: 0.9 });
+var landB = new THREE.MeshStandardMaterial({ color: 0x4f6239, roughness: 0.9 });
+var lakeMat = new THREE.MeshStandardMaterial({ color: 0x2c6f93, roughness: 0.25, metalness: 0.15 });
+var tileMeshes = [];
+for (var tr = 0; tr < 10; tr++) {
+  for (var tc = 0; tc < 10; tc++) {
+    var lake = isLake(tr, tc);
+    var tm = new THREE.Mesh(lake ? lakeGeo : tileGeo, lake ? lakeMat : ((tr + tc) % 2 ? landA : landB));
+    tm.position.set(xOf(tc), lake ? 0.02 : 0.06, zOf(tr));
+    tm.receiveShadow = true;
+    tm.userData = { r: tr, c: tc, lake: lake };
+    scene.add(tm);
+    tileMeshes.push(tm);
+  }
+}
+
+var piecesGroup = new THREE.Group(); scene.add(piecesGroup);
+var markerGroup = new THREE.Group(); scene.add(markerGroup);
+var lastGroup = new THREE.Group(); scene.add(lastGroup);
+
+/* ---------- Piece textures ---------- */
+function rr(x, px, py, w, h, rad) {
+  x.beginPath();
+  x.moveTo(px + rad, py);
+  x.arcTo(px + w, py, px + w, py + h, rad);
+  x.arcTo(px + w, py + h, px, py + h, rad);
+  x.arcTo(px, py + h, px, py, rad);
+  x.arcTo(px, py, px + w, py, rad);
+  x.closePath();
+}
+function star(x, cx, cy, R, r) {
+  x.beginPath();
+  for (var i = 0; i < 10; i++) {
+    var a = -Math.PI / 2 + i * Math.PI / 5;
+    var rad = i % 2 ? r : R;
+    var px = cx + Math.cos(a) * rad, py = cy + Math.sin(a) * rad;
+    if (i) x.lineTo(px, py); else x.moveTo(px, py);
+  }
+  x.closePath();
+}
+function makeFace(team, rank) {
+  var W = 192, H = 224, cv = document.createElement('canvas');
+  cv.width = W; cv.height = H;
+  var x = cv.getContext('2d'), T = TEAM[team];
+  x.fillStyle = T.base; x.fillRect(0, 0, W, H);
+  x.strokeStyle = T.dark; x.lineWidth = 12; x.strokeRect(6, 6, W - 12, H - 12);
+  x.fillStyle = 'rgba(255,255,255,0.10)'; rr(x, 20, 20, W - 40, H - 40, 10); x.fill();
+  x.strokeStyle = 'rgba(255,255,255,0.35)'; x.lineWidth = 2; rr(x, 20, 20, W - 40, H - 40, 10); x.stroke();
+  x.textAlign = 'center'; x.textBaseline = 'middle';
+  if (rank < 0) {
+    x.fillStyle = T.light; x.globalAlpha = 0.55; star(x, W / 2, H / 2, 54, 22); x.fill();
+    x.globalAlpha = 1; x.strokeStyle = 'rgba(255,255,255,0.3)'; x.lineWidth = 3;
+    x.beginPath(); x.arc(W / 2, H / 2, 70, 0, Math.PI * 2); x.stroke();
+  } else if (rank === 0) {
+    x.strokeStyle = '#f3ead6'; x.lineWidth = 7; x.beginPath(); x.moveTo(76, 56); x.lineTo(76, 156); x.stroke();
+    x.fillStyle = '#f3ead6'; x.beginPath(); x.moveTo(80, 58); x.lineTo(142, 80); x.lineTo(80, 104); x.closePath(); x.fill();
+  } else if (rank === 11) {
+    x.fillStyle = '#17181c'; x.beginPath(); x.arc(94, 112, 42, 0, Math.PI * 2); x.fill();
+    x.fillStyle = 'rgba(255,255,255,0.25)'; x.beginPath(); x.arc(80, 98, 11, 0, Math.PI * 2); x.fill();
+    x.strokeStyle = '#d8c9a5'; x.lineWidth = 6; x.beginPath(); x.moveTo(118, 78); x.quadraticCurveTo(132, 60, 146, 62); x.stroke();
+    x.fillStyle = '#ffb347'; star(x, 150, 58, 14, 6); x.fill();
+  } else {
+    x.fillStyle = '#f7f1e3';
+    x.font = '700 ' + (INFO[rank].l.length > 1 ? 84 : 100) + 'px Impact, "Arial Black", sans-serif';
+    x.fillText(INFO[rank].l, W / 2, 100);
+  }
+  if (rank >= 0) {
+    x.fillStyle = 'rgba(247,241,227,0.92)';
+    x.font = '700 24px Arial, sans-serif';
+    x.fillText(INFO[rank].n.toUpperCase(), W / 2, 184);
+  }
+  return new THREE.CanvasTexture(cv);
+}
+function makeTop(team, rank) {
+  var W = 256, H = 90, cv = document.createElement('canvas');
+  cv.width = W; cv.height = H;
+  var x = cv.getContext('2d'), T = TEAM[team];
+  x.fillStyle = T.base; x.fillRect(0, 0, W, H);
+  x.strokeStyle = T.dark; x.lineWidth = 8; x.strokeRect(4, 4, W - 8, H - 8);
+  if (rank >= 0) {
+    x.fillStyle = '#f7f1e3'; x.textAlign = 'center'; x.textBaseline = 'middle';
+    x.font = '700 60px Impact, "Arial Black", sans-serif';
+    x.fillText(INFO[rank].l, W / 2, H / 2 + 2);
+  }
+  return new THREE.CanvasTexture(cv);
+}
+var texCache = {};
+function tex(key, fn) { return texCache[key] || (texCache[key] = fn()); }
+function faceTex(t, r) { return tex('f' + t + '-' + r, function () { return makeFace(t, r); }); }
+function hiddenFace(t) { return tex('hf' + t, function () { return makeFace(t, -1); }); }
+function topTex(t, r) { return tex('t' + t + '-' + r, function () { return makeTop(t, r); }); }
+function hiddenTop(t) { return tex('ht' + t, function () { return makeTop(t, -1); }); }
+
+var bodyGeo = new THREE.BoxGeometry(0.8, 0.92, 0.26);
+var footGeo = new THREE.BoxGeometry(0.86, 0.08, 0.56);
+
+function createPiece(team) {
+  var p = { team: team, rank: 0, r: 0, c: 0, revealed: false, moved: false, alive: true, prev: null };
+  var mats = [0, 1, 2, 3, 4, 5].map(function () { return new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.55, metalness: 0.05 }); });
+  [0, 1, 3].forEach(function (i) { mats[i].color.setHex(TEAM[team].side); });
+  var body = new THREE.Mesh(bodyGeo, mats);
+  body.position.y = 0.54; body.castShadow = true; body.userData.piece = p;
+  var foot = new THREE.Mesh(footGeo, new THREE.MeshStandardMaterial({ color: TEAM[team].foot, roughness: 0.7 }));
+  foot.position.y = 0.04; foot.castShadow = true; foot.userData.piece = p;
+  var g = new THREE.Group();
+  g.add(body); g.add(foot);
+  piecesGroup.add(g);
+  p.group = g; p.body = body; p.foot = foot; p.mats = mats;
+  return p;
+}
+function placeMesh(p) {
+  p.group.position.set(xOf(p.c), 0.12, zOf(p.r));
+  p.group.scale.set(1, 1, 1);
+  invalidate();
+}
+function updateVisual(p) {
+  var t = p.team, show = t === 0 || p.revealed, m = p.mats;
+  var own = t === 0 ? 4 : 5, other = t === 0 ? 5 : 4;
+  m[own].map = show ? faceTex(t, p.rank) : hiddenFace(t);
+  m[other].map = p.revealed ? faceTex(t, p.rank) : hiddenFace(t);
+  m[2].map = show ? topTex(t, p.rank) : hiddenTop(t);
+  m[2].needsUpdate = true; m[4].needsUpdate = true; m[5].needsUpdate = true;
+  invalidate();
+}
+function setGlow(p, on) {
+  p.mats.forEach(function (m) { m.emissive.setHex(on ? 0x4a3a08 : 0x000000); });
+  p.foot.material.emissive.setHex(on ? 0x4a3a08 : 0x000000);
+  invalidate();
+}
+
+/* ---------- Camera ---------- */
+var cam = { theta: 0, phi: 0.95, dist: 15, target: new THREE.Vector3(0, 0.3, 0.4) };
+var userZoomed = false;
+function applyCam() {
+  var s = Math.sin(cam.phi);
+  camera.position.set(
+    cam.target.x + cam.dist * s * Math.sin(cam.theta),
+    cam.target.y + cam.dist * Math.cos(cam.phi),
+    cam.target.z + cam.dist * s * Math.cos(cam.theta)
+  );
+  camera.lookAt(cam.target);
+  invalidate();
+}
+function fitDist() {
+  var th = Math.tan(camera.fov * Math.PI / 360);
+  return clamp(4.2 + 5.9 / (th * camera.aspect), 13, 34);
+}
+function resize() {
+  var w = stage.clientWidth, h = stage.clientHeight;
+  if (!w || !h) return;
+  renderer.setSize(w, h, false);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+  if (!userZoomed) cam.dist = fitDist();
+  applyCam();
+}
+if (window.ResizeObserver) new ResizeObserver(resize).observe(stage);
+window.addEventListener('resize', resize);
+
+function tween(dur, fn) {
+  return new Promise(function (res) {
+    var t0 = performance.now();
+    function step(now) {
+      var t = Math.min(1, (now - t0) / dur);
+      var e = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+      fn(e, t);
+      invalidate();
+      if (t < 1) requestAnimationFrame(step); else res();
+    }
+    requestAnimationFrame(step);
+  });
+}
+function animateCam(theta, phi, dist) {
+  cam.theta = ((cam.theta + Math.PI) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) - Math.PI;
+  var t0 = cam.theta, p0 = cam.phi, d0 = cam.dist;
+  return tween(450, function (e) {
+    cam.theta = t0 + (theta - t0) * e;
+    cam.phi = p0 + (phi - p0) * e;
+    cam.dist = d0 + (dist - d0) * e;
+    applyCam();
+  });
+}
+$('btnView').addEventListener('click', function () { userZoomed = false; animateCam(0, 0.95, fitDist()); });
+$('btnTop').addEventListener('click', function () { animateCam(0, cam.phi > 0.4 ? 0.14 : 0.95, cam.dist); });
+
+/* ---------- Input ---------- */
+var ray = new THREE.Raycaster(), mouse = new THREE.Vector2();
+function pick(ev) {
+  var rect = renderer.domElement.getBoundingClientRect();
+  mouse.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
+  mouse.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
+  ray.setFromCamera(mouse, camera);
+  var objs = tileMeshes.slice();
+  pieces.forEach(function (p) { if (p.alive) { objs.push(p.body); objs.push(p.foot); } });
+  var hits = ray.intersectObjects(objs, false);
+  if (!hits.length) return null;
+  var o = hits[0].object;
+  if (o.userData.piece) return { r: o.userData.piece.r, c: o.userData.piece.c };
+  if (o.userData.lake) return null;
+  return { r: o.userData.r, c: o.userData.c };
+}
+var el = renderer.domElement;
+var ptrs = new Map(), startPt = null, moved = false, pinch0 = 0, dist0 = 0;
+el.addEventListener('pointerdown', function (e) {
+  try { el.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+  ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (ptrs.size === 1) { startPt = { x: e.clientX, y: e.clientY }; moved = false; }
+  else if (ptrs.size === 2) {
+    moved = true;
+    var v = Array.from(ptrs.values());
+    pinch0 = Math.hypot(v[0].x - v[1].x, v[0].y - v[1].y);
+    dist0 = cam.dist;
+  }
+});
+el.addEventListener('pointermove', function (e) {
+  var p = ptrs.get(e.pointerId);
+  if (!p) return;
+  var dx = e.clientX - p.x, dy = e.clientY - p.y;
+  p.x = e.clientX; p.y = e.clientY;
+  if (ptrs.size === 1) {
+    if (!moved && Math.hypot(e.clientX - startPt.x, e.clientY - startPt.y) > 6) moved = true;
+    if (moved) {
+      cam.theta -= dx * 0.006;
+      cam.phi = clamp(cam.phi - dy * 0.006, 0.12, 1.45);
+      applyCam();
+    }
+  } else if (ptrs.size === 2 && pinch0 > 0) {
+    var v = Array.from(ptrs.values());
+    var d = Math.hypot(v[0].x - v[1].x, v[0].y - v[1].y);
+    if (d > 0) { cam.dist = clamp(dist0 * pinch0 / d, 8, 34); userZoomed = true; applyCam(); }
+  }
+});
+function endPtr(e) {
+  if (!ptrs.delete(e.pointerId)) return;
+  if (ptrs.size === 0) {
+    if (!moved && e.type === 'pointerup') onClickCell(pick(e));
+    moved = false;
+  }
+}
+el.addEventListener('pointerup', endPtr);
+el.addEventListener('pointercancel', endPtr);
+el.addEventListener('wheel', function (e) {
+  e.preventDefault();
+  cam.dist = clamp(cam.dist * Math.exp(e.deltaY * 0.0012), 8, 34);
+  userZoomed = true;
+  applyCam();
+}, { passive: false });
+
+/* ---------- Markers ---------- */
+var moveMat = new THREE.MeshBasicMaterial({ color: 0x7fe3a0, transparent: true, opacity: 0.9 });
+var atkMat = new THREE.MeshBasicMaterial({ color: 0xff6b5a, transparent: true, opacity: 0.95, side: THREE.DoubleSide });
+var selMat = new THREE.MeshBasicMaterial({ color: 0xffd36a, transparent: true, opacity: 0.95, side: THREE.DoubleSide });
+var lastMat = new THREE.MeshBasicMaterial({ color: 0xd9a441, transparent: true, opacity: 0.8, side: THREE.DoubleSide });
+var dotGeo = new THREE.CircleGeometry(0.2, 24);
+var atkGeo = new THREE.RingGeometry(0.28, 0.44, 32);
+var selGeo = new THREE.RingGeometry(0.44, 0.52, 40);
+var sqGeo = new THREE.RingGeometry(0.62, 0.68, 4, 1, Math.PI / 4);
+function flat(geo, mat, r, c, y) {
+  var m = new THREE.Mesh(geo, mat);
+  m.rotation.x = -Math.PI / 2;
+  m.position.set(xOf(c), y, zOf(r));
+  return m;
+}
+function clearGroup(g) { while (g.children.length) g.remove(g.children[0]); }
+function showMarkers(p, moves) {
+  clearGroup(markerGroup);
+  markerGroup.add(flat(selGeo, selMat, p.r, p.c, 0.135));
+  moves.forEach(function (m) {
+    markerGroup.add(m.attack ? flat(atkGeo, atkMat, m.r, m.c, 0.14) : flat(dotGeo, moveMat, m.r, m.c, 0.135));
+  });
+  invalidate();
+}
+function drawLast() {
+  clearGroup(lastGroup);
+  if (lastMove) {
+    lastGroup.add(flat(sqGeo, lastMat, lastMove.from.r, lastMove.from.c, 0.132));
+    lastGroup.add(flat(sqGeo, lastMat, lastMove.to.r, lastMove.to.c, 0.132));
+  }
+  invalidate();
+}
+
+/* ---------- Animations ---------- */
+function hop(p, r, c, dur) {
+  var g = p.group, sx = g.position.x, sz = g.position.z, tx = xOf(c), tz = zOf(r);
+  return tween(dur, function (e) {
+    g.position.x = sx + (tx - sx) * e;
+    g.position.z = sz + (tz - sz) * e;
+    g.position.y = 0.12 + Math.sin(Math.PI * e) * 0.28;
+  });
+}
+function lunge(p, target) {
+  var g = p.group, sx = g.position.x, sz = g.position.z;
+  var tx = sx + (xOf(target.c) - sx) * 0.58, tz = sz + (zOf(target.r) - sz) * 0.58;
+  return tween(300, function (e) {
+    g.position.x = sx + (tx - sx) * e;
+    g.position.z = sz + (tz - sz) * e;
+    g.position.y = 0.12 + Math.sin(Math.PI * e) * 0.15;
+  });
+}
+function removePiece(p) {
+  p.alive = false;
+  if (board[p.r][p.c] === p) board[p.r][p.c] = null;
+  captured[p.team].push(p.rank);
+  var g = p.group;
+  return tween(380, function (e) {
+    var s = Math.max(0.001, 1 - e);
+    g.scale.set(s, s, s);
+    g.position.y = 0.12 + e * 0.3;
+  }).then(function () { piecesGroup.remove(g); });
+}
+
+/* ---------- UI ---------- */
+var toastTimer = null;
+function toast(msg, ms) {
+  var t = $('toast');
+  t.textContent = msg; t.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(function () { t.hidden = true; }, ms || 2600);
+}
+function addLog(text, team) {
+  logEntries.push({ t: text, team: team });
+}
+function chipHtml(rank, team) {
+  return '<span class="chip ' + (team === 0 ? 'red' : 'blue') + '" title="' + INFO[rank].n + '">' + INFO[rank].l + '</span>';
+}
+function capHtml(list, team) {
+  if (!list.length) return '<span class="none">None yet</span>';
+  return list.slice().sort(function (a, b) { return (b === 0 ? -1 : b) - (a === 0 ? -1 : a); })
+    .map(function (r) { return chipHtml(r, team); }).join('');
+}
+var gameResult = null;
+function updateUI() {
+  var red = pieces.filter(function (p) { return p.team === 0 && p.alive; }).length;
+  var blue = pieces.filter(function (p) { return p.team === 1 && p.alive; }).length;
+  $('cntRed').textContent = red; $('cntBlue').textContent = blue;
+  var dot = $('dot'), st = $('statusText'), title = $('phaseTitle'), text = $('phaseText');
+  var setup = phase === 'setup';
+  $('btnShuffle').hidden = !setup; $('btnStart').hidden = !setup;
+  if (setup) {
+    dot.className = 'dot'; st.textContent = 'Deploy your army';
+    title.textContent = 'Deploy your army';
+    text.textContent = 'Your pieces face you and Blue\'s are hidden. Click one of your pieces, then another to swap them. Keep the Flag behind Bombs.';
+  } else if (phase === 'battle') {
+    if (turn === 0) {
+      dot.className = 'dot red'; st.textContent = 'Your move';
+      title.textContent = 'Your move';
+      text.textContent = 'Select a Red piece. Green dots are moves and red rings are attacks.';
+    } else {
+      dot.className = 'dot blue'; st.textContent = 'Blue is planning';
+      title.textContent = 'Blue\'s move';
+      text.textContent = 'The enemy commander is choosing a move.';
+    }
+  } else if (gameResult) {
+    dot.className = 'dot ' + (gameResult.winner === 0 ? 'good' : 'blue');
+    st.textContent = gameResult.winner === 0 ? 'Victory' : 'Defeat';
+    title.textContent = gameResult.winner === 0 ? 'Victory' : 'Defeat';
+    text.textContent = gameResult.text;
+  }
+  $('capRed').innerHTML = capHtml(captured[0], 0);
+  $('capBlue').innerHTML = capHtml(captured[1], 1);
+  var lg = $('log');
+  if (!logEntries.length) lg.innerHTML = '<li class="empty">Combat reports will appear here.</li>';
+  else lg.innerHTML = logEntries.slice(-7).reverse().map(function (e) {
+    return '<li class="' + (e.team === 0 ? 'red' : e.team === 1 ? 'blue' : '') + '">' + e.t + '</li>';
+  }).join('');
+}
+function buildRanksTable() {
+  var notes = { 2: 'Moves any distance', 3: 'Defuses Bombs', 1: 'Beats Marshal on attack', 11: 'Immobile', 0: 'Capture to win' };
+  $('ranksTable').innerHTML = RANKS.map(function (i) {
+    return '<tr><td><span class="chip neutral">' + i.l + '</span></td><td>' + i.n + ' <span style="color:var(--muted)">×' + i.c + '</span></td><td>' + (notes[i.r] || '') + '</td></tr>';
+  }).join('');
+}
+
+/* ---------- Game flow ---------- */
+function deselect() {
+  if (selected) setGlow(selected, false);
+  selected = null; selectedMoves = [];
+  clearGroup(markerGroup);
+  invalidate();
+}
+function select(p) {
+  deselect();
+  selected = p; setGlow(p, true);
+  if (phase === 'battle') { selectedMoves = legalMoves(p); showMarkers(p, selectedMoves); }
+  else { selectedMoves = []; showMarkers(p, []); }
+}
+function applyLayout(team) {
+  var lay = generateLayout(team);
+  var ps = pieces.filter(function (p) { return p.team === team; });
+  var rows = team === 0 ? [6, 7, 8, 9] : [0, 1, 2, 3];
+  rows.forEach(function (r) { for (var c = 0; c < 10; c++) board[r][c] = null; });
+  lay.forEach(function (cell, i) {
+    var p = ps[i];
+    p.rank = cell.rank; p.r = cell.r; p.c = cell.c;
+    p.revealed = false; p.moved = false; p.alive = true; p.prev = null;
+    board[p.r][p.c] = p;
+    placeMesh(p); updateVisual(p);
+  });
+}
+function newGame() {
+  gameId++;
+  if (pieces) {
+    pieces.forEach(function (p) {
+      p.mats.forEach(function (m) { m.dispose(); });
+      p.foot.material.dispose();
+    });
+  }
+  clearGroup(piecesGroup); clearGroup(markerGroup); clearGroup(lastGroup);
+  board = [];
+  for (var r = 0; r < 10; r++) board.push(new Array(10).fill(null));
+  pieces = [];
+  for (var t = 0; t < 2; t++) for (var k = 0; k < 40; k++) pieces.push(createPiece(t));
+  captured = [[], []]; logEntries = []; selected = null; selectedMoves = []; lastMove = null;
+  phase = 'setup'; turn = 0; busy = false; gameResult = null;
+  applyLayout(0); applyLayout(1);
+  $('over').hidden = true;
+  updateUI();
+  invalidate();
+}
+function endGame(winner, text) {
+  phase = 'over';
+  gameResult = { winner: winner, text: text };
+  pieces.forEach(function (p) { if (p.alive && !p.revealed) { p.revealed = true; updateVisual(p); } });
+  addLog(text, winner);
+  updateUI();
+  $('overTitle').textContent = winner === 0 ? 'Victory' : 'Defeat';
+  $('overText').textContent = text;
+  $('over').hidden = false;
+}
+function combatText(a, d, res) {
+  var A = TEAM_NAME[a.team] + ' ' + INFO[a.rank].n, D = TEAM_NAME[d.team] + ' ' + INFO[d.rank].n;
+  if (d.rank === 0) return A + ' captures the ' + TEAM_NAME[d.team] + ' Flag.';
+  if (d.rank === 11) return res === 'win' ? A + ' defuses the ' + TEAM_NAME[d.team] + ' Bomb.' : A + ' hits a ' + TEAM_NAME[d.team] + ' Bomb and is destroyed.';
+  if (res === 'win') return A + ' defeats ' + D + '.';
+  if (res === 'lose') return A + ' is defeated by ' + D + '.';
+  return A + ' and ' + D + ' destroy each other.';
+}
+
+async function doMove(p, r, c) {
+  var gid = gameId;
+  var from = { r: p.r, c: p.c };
+  var target = board[r][c];
+  var dist = Math.abs(r - p.r) + Math.abs(c - p.c);
+  p.moved = true;
+  lastMove = { from: from, to: { r: r, c: c } };
+  if (!target) {
+    if (dist > 1 && !p.revealed) {
+      p.revealed = true; updateVisual(p);
+      addLog(TEAM_NAME[p.team] + ' Scout runs ' + dist + ' squares and is revealed.', p.team);
+    }
+    board[from.r][from.c] = null; p.r = r; p.c = c; board[r][c] = p;
+    await hop(p, r, c, dist > 1 ? 260 + dist * 40 : 360);
+    if (gid !== gameId) return;
+    drawLast(); updateUI();
+    return;
+  }
+  var res = fightRanks(p.rank, target.rank);
+  await lunge(p, target);
+  if (gid !== gameId) return;
+  p.revealed = true; target.revealed = true;
+  updateVisual(p); updateVisual(target);
+  var msg = combatText(p, target, res);
+  addLog(msg, p.team); toast(msg, 3000); updateUI();
+  await sleep(850);
+  if (gid !== gameId) return;
+  board[from.r][from.c] = null;
+  if (res === 'win') {
+    var flag = target.rank === 0;
+    var rem = removePiece(target);
+    board[r][c] = p; p.r = r; p.c = c;
+    await Promise.all([rem, hop(p, r, c, 360)]);
+    if (gid !== gameId) return;
+    if (flag) {
+      drawLast();
+      endGame(p.team, p.team === 0 ? 'You captured the Blue flag.' : 'Blue captured your flag.');
+      return;
+    }
+  } else if (res === 'lose') {
+    await removePiece(p);
+  } else {
+    await Promise.all([removePiece(p), removePiece(target)]);
+  }
+  if (gid !== gameId) return;
+  drawLast(); updateUI();
+}
+
+/* ---------- Blue's decision making ---------- */
+function aiChoose() {
+  var pool = {};
+  RANKS.forEach(function (i) { pool[i.r] = i.c; });
+  captured[0].forEach(function (rk) { pool[rk]--; });
+  pieces.forEach(function (p) { if (p.team === 0 && p.alive && p.revealed) pool[p.rank]--; });
+  Object.keys(pool).forEach(function (k) { if (pool[k] < 0) pool[k] = 0; });
+
+  function weights(t) {
+    var w = {}, sum = 0;
+    Object.keys(pool).forEach(function (k) {
+      var n = Number(k), v = pool[k];
+      if (t.moved && (n === 0 || n === 11)) v = 0;
+      w[n] = v; sum += v;
+    });
+    if (sum <= 0) { Object.keys(pool).forEach(function (k) { w[Number(k)] = 1; sum++; }); }
+    return { w: w, sum: sum };
+  }
+  function outcome(a, d, unknown) {
+    var res = fightRanks(a, d);
+    var vd = d === 0 ? (unknown ? 400 : 2000) : VAL[d];
+    if (res === 'win') return vd;
+    if (res === 'lose') return -VAL[a];
+    return vd - VAL[a];
+  }
+  function evalAttack(a, t) {
+    if (t.revealed) return outcome(a.rank, t.rank, false);
+    var ws = weights(t), ev = 0;
+    Object.keys(ws.w).forEach(function (k) {
+      var n = Number(k);
+      if (ws.w[n] > 0) ev += ws.w[n] / ws.sum * outcome(a.rank, n, true);
+    });
+    if (a.rank === 2) ev += 10;
+    return ev;
+  }
+  function danger(a, r, c) {
+    var d = 0;
+    for (var k = 0; k < 4; k++) {
+      var nr = r + DIRS[k][0], nc = c + DIRS[k][1];
+      if (!inBounds(nr, nc)) continue;
+      var o = board[nr][nc];
+      if (!o || o.team !== 0 || o.rank === 0 || o.rank === 11) continue;
+      if (o.revealed) {
+        if (fightRanks(o.rank, a.rank) === 'win') d += VAL[a.rank] * 0.8;
+      } else {
+        d += VAL[a.rank] * (o.moved ? 0.06 : 0.03) * (a.rank >= 7 ? 2 : 1);
+      }
+    }
+    return d;
+  }
+  var best = null, bestScore = -Infinity;
+  pieces.forEach(function (p) {
+    if (p.team !== 1 || !p.alive) return;
+    legalMoves(p).forEach(function (m) {
+      var s = Math.random() * 3;
+      if (m.attack) {
+        s += evalAttack(p, board[m.r][m.c]);
+      } else {
+        s += (m.r - p.r) * 1.6;
+        if (p.rank === 2 && Math.abs(m.r - p.r) > 1) s += 3;
+        s += danger(p, p.r, p.c) - danger(p, m.r, m.c);
+        if (p.prev && p.prev.r === m.r && p.prev.c === m.c) s -= 4;
+      }
+      if (s > bestScore) { bestScore = s; best = { p: p, r: m.r, c: m.c }; }
+    });
+  });
+  return best;
+}
+
+async function playerMove(p, r, c) {
+  var gid = gameId;
+  busy = true; deselect();
+  await doMove(p, r, c);
+  if (gid !== gameId) return;
+  if (phase === 'over') { busy = false; return; }
+  if (!hasMoves(1)) { endGame(0, 'Blue has no movable pieces left.'); busy = false; return; }
+  turn = 1; updateUI();
+  await sleep(550);
+  if (gid !== gameId) return;
+  var mv = aiChoose();
+  if (!mv) { endGame(0, 'Blue has no movable pieces left.'); busy = false; return; }
+  mv.p.prev = { r: mv.p.r, c: mv.p.c };
+  await doMove(mv.p, mv.r, mv.c);
+  if (gid !== gameId) return;
+  if (phase === 'over') { busy = false; return; }
+  if (!hasMoves(0)) { endGame(1, 'You have no movable pieces left.'); busy = false; return; }
+  turn = 0; busy = false; updateUI();
+}
+
+function swapPieces(a, b) {
+  var ar = a.r, ac = a.c;
+  a.r = b.r; a.c = b.c; b.r = ar; b.c = ac;
+  board[a.r][a.c] = a; board[b.r][b.c] = b;
+  [a, b].forEach(function (p) { hop(p, p.r, p.c, 260); });
+}
+function onClickCell(cell) {
+  if (!cell || busy) return;
+  var p = board[cell.r][cell.c];
+  if (phase === 'setup') {
+    if (!p || p.team !== 0) { deselect(); return; }
+    if (!selected) { select(p); return; }
+    if (selected === p) { deselect(); return; }
+    var a = selected;
+    deselect();
+    swapPieces(a, p);
+    return;
+  }
+  if (phase === 'battle' && turn === 0) {
+    if (selected) {
+      var mv = selectedMoves.filter(function (m) { return m.r === cell.r && m.c === cell.c; })[0];
+      if (mv) { playerMove(selected, cell.r, cell.c); return; }
+    }
+    if (p && p.team === 0) {
+      if (selected === p) { deselect(); return; }
+      if (p.rank === 0 || p.rank === 11) { toast('Bombs and the Flag cannot move.'); deselect(); return; }
+      if (!legalMoves(p).length) { toast('That piece is blocked.'); deselect(); return; }
+      select(p);
+      return;
+    }
+    deselect();
+  }
+}
+
+/* ---------- Buttons ---------- */
+$('btnShuffle').addEventListener('click', function () {
+  if (phase !== 'setup') return;
+  deselect(); applyLayout(0); updateUI();
+});
+$('btnStart').addEventListener('click', function () {
+  if (phase !== 'setup') return;
+  if (!hasMoves(0)) { toast('Your army has no legal moves. Rearrange it first.'); return; }
+  deselect();
+  phase = 'battle'; turn = 0;
+  addLog('Battle begins. Red moves first.', null);
+  updateUI();
+  toast('Battle begins. Select a piece to move.');
+});
+var sureTimer = null;
+$('btnNew').addEventListener('click', function () {
+  var b = $('btnNew');
+  if (phase === 'battle' && !b.dataset.sure) {
+    b.dataset.sure = '1';
+    b.textContent = 'Click again to abandon this battle';
+    sureTimer = setTimeout(function () { delete b.dataset.sure; b.textContent = 'New game'; }, 3000);
+    return;
+  }
+  clearTimeout(sureTimer); delete b.dataset.sure; b.textContent = 'New game';
+  newGame();
+});
+$('btnAgain').addEventListener('click', newGame);
+
+/* ---------- Start ---------- */
+function loop(now) {
+  requestAnimationFrame(loop);
+  if (now - lastInv < 300) renderer.render(scene, camera);
+}
+buildRanksTable();
+newGame();
+resize();
+requestAnimationFrame(loop);
+toast('Click one of your pieces, then another, to swap places.', 4000);
+})();
+</script>
+
+</body></html>
