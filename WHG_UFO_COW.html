@@ -1,0 +1,229 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Night Harvest – UFO Cow Abduction</title>
+<style>
+:root{--bg:#05081a;--fg:#d8f6ff;--acc:#56ffd0;--warn:#ff5b5b;--pane:rgba(8,16,40,.7)}
+html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,"Segoe UI",sans-serif;overflow:hidden;touch-action:none;user-select:none;-webkit-user-select:none}
+canvas{display:block;position:fixed;inset:0;width:100%;height:100%}
+.p{position:fixed;background:var(--pane);border:1px solid #56ffd055;border-radius:12px;padding:8px 12px;font-size:14px}
+#hud{top:calc(env(safe-area-inset-top,0px) + 8px);left:8px;min-width:140px}
+#alt{top:calc(env(safe-area-inset-top,0px) + 8px);right:8px;text-align:right}
+.bar{height:8px;background:#0008;border-radius:4px;margin-top:5px;overflow:hidden}.bar i{display:block;height:100%;width:100%;background:var(--acc)}
+#msg{position:fixed;top:24%;left:0;right:0;text-align:center;font-weight:700;font-size:18px;text-shadow:0 0 8px #000;pointer-events:none}
+#scanw{bottom:calc(env(safe-area-inset-bottom,0px) + 168px);left:50%;transform:translateX(-50%);width:210px;text-align:center;display:none;font-size:13px}
+#flash{position:fixed;inset:0;background:radial-gradient(transparent 40%,#f00);opacity:0;pointer-events:none}
+#stick{position:fixed;left:18px;bottom:calc(env(safe-area-inset-bottom,0px) + 22px);width:130px;height:130px;border-radius:50%;background:#ffffff14;border:2px solid #56ffd066;touch-action:none}
+#knob{position:absolute;left:45px;top:45px;width:40px;height:40px;border-radius:50%;background:#56ffd0aa}
+.b{position:fixed;border-radius:50%;border:2px solid #56ffd0aa;background:#56ffd022;color:var(--fg);font-weight:700;display:flex;align-items:center;justify-content:center;touch-action:none}
+.b.on{background:#56ffd0aa;color:#012}
+#bBeam{right:18px;bottom:calc(env(safe-area-inset-bottom,0px) + 30px);width:96px;height:96px}
+#bLas{right:30px;bottom:calc(env(safe-area-inset-bottom,0px) + 136px);width:64px;height:64px;font-size:24px}
+#bUp{right:128px;bottom:calc(env(safe-area-inset-bottom,0px) + 84px);width:54px;height:54px}
+#bDn{right:128px;bottom:calc(env(safe-area-inset-bottom,0px) + 24px);width:54px;height:54px}
+#ov{position:fixed;inset:0;background:#030614dd;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:20px;gap:10px}
+#ov h1{margin:0;color:var(--acc);font-size:30px}#ov p{max-width:440px;margin:4px;line-height:1.4;font-size:14px}
+#ov button{margin-top:10px;font-size:18px;padding:12px 28px;border-radius:30px;border:0;background:var(--acc);color:#012;font-weight:700}
+</style></head><body>
+<div id="hud" class="p">🐄 <b id="sc">0/8</b> &nbsp; ⏱ <span id="tm">0</span>s<div class="bar"><i id="sh"></i></div></div>
+<div id="alt" class="p">Altitude <b id="al">10</b> m<br><small>Beam radius <span id="br">4</span> m</small></div>
+<div id="msg"></div>
+<div id="scanw" class="p"><span id="scl">SCANNING</span><div class="bar"><i id="scb" style="width:0"></i></div></div>
+<div id="flash"></div>
+<div id="stick"><div id="knob"></div></div>
+<div class="b" id="bUp">▲</div><div class="b" id="bDn">▼</div><div class="b" id="bBeam">BEAM</div><div class="b" id="bLas">🔫</div>
+<div id="ov"><h1>🛸 Night Harvest</h1>
+<p id="ovt">Fly your saucer over the farm and abduct 8 cows. Switch on the <b>tractor beam</b> over a cow and keep her <b>perfectly still for 5 seconds</b> – hover slowly, fast flying spooks the herd. Then the lift begins (and she will moo).</p>
+<p>⚠ <b>Crows</b> dive at your saucer – they can’t damage it, but a hit <b>jams the beam</b> for ~2 seconds: the scan resets and a cow being lifted drops. 🐂 <b>Bulls</b> are hostile and ram you when you fly low. Higher = safer from bulls but wider beam is easier to spot by crows.</p>
+<p><b>Move</b> WASD / arrows / joystick · <b>Beam</b> hold Space / BEAM · <b>Altitude</b> Q·E / ▲▼ / wheel · <b>Laser</b> F / 🔫 – auto-aims at the nearest crow and shoots it down</p>
+<button id="go">Start</button></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+const $=i=>document.getElementById(i),R=Math.random,TAU=Math.PI*2,clamp=(v,a,b)=>Math.min(b,Math.max(a,v));
+const scene=new THREE.Scene();scene.background=new THREE.Color(0x070b22);scene.fog=new THREE.FogExp2(0x070b22,.011);
+const cam=new THREE.PerspectiveCamera(65,innerWidth/innerHeight,.1,500);
+const ren=new THREE.WebGLRenderer({antialias:true});ren.setPixelRatio(Math.min(devicePixelRatio,2));ren.setSize(innerWidth,innerHeight);document.body.prepend(ren.domElement);
+addEventListener('resize',()=>{ren.setSize(innerWidth,innerHeight);cam.aspect=innerWidth/innerHeight;cam.updateProjectionMatrix()});
+const M=(c,e)=>new THREE.MeshLambertMaterial({color:c,emissive:e||0});
+scene.add(new THREE.HemisphereLight(0x5577bb,0x142214,.75));
+const moonL=new THREE.DirectionalLight(0xaabbff,.7);moonL.position.set(-50,70,-100);scene.add(moonL);
+const moon=new THREE.Mesh(new THREE.SphereGeometry(9,24,16),new THREE.MeshBasicMaterial({color:0xfff4d0,fog:false}));moon.position.set(-90,80,-170);scene.add(moon);
+{const a=[];for(let i=0;i<600;i++){const u=R()*TAU,v=R()*1.3+.1;a.push(Math.cos(u)*Math.cos(v)*220,Math.sin(v)*220,Math.sin(u)*Math.cos(v)*220)}
+const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(a,3));
+scene.add(new THREE.Points(g,new THREE.PointsMaterial({color:0xffffff,size:1.6,sizeAttenuation:false,fog:false})))}
+// ground
+{const c=document.createElement('canvas');c.width=c.height=512;const g=c.getContext('2d');g.fillStyle='#1f4423';g.fillRect(0,0,512,512);
+for(let i=0;i<1800;i++){g.fillStyle=`rgba(${20+R()*30|0},${60+R()*50|0},${25+R()*20|0},.5)`;g.fillRect(R()*512,R()*512,3,6)}
+[[30,50,210,150,'#2d5020'],[270,250,210,210,'#44501c'],[40,300,150,150,'#25461f']].forEach(([x,y,w,h,col])=>{g.fillStyle=col;g.fillRect(x,y,w,h);g.strokeStyle='rgba(0,0,0,.28)';for(let k=0;k<w;k+=8){g.beginPath();g.moveTo(x+k,y);g.lineTo(x+k,y+h);g.stroke()}});
+const t=new THREE.CanvasTexture(c);t.wrapS=t.wrapT=THREE.RepeatWrapping;t.repeat.set(3,3);
+const gr=new THREE.Mesh(new THREE.PlaneGeometry(240,240),new THREE.MeshLambertMaterial({map:t}));gr.rotation.x=-Math.PI/2;scene.add(gr)}
+// farm props
+function box(w,h,d,c,x,y,z,ry){const m=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),M(c));m.position.set(x,y,z);if(ry)m.rotation.z=ry;scene.add(m);return m}
+box(9,6,11,0x7a1f1a,-32,3,-28);box(5.4,.4,11.6,0x30241e,-34.2,7,-28,.62);box(5.4,.4,11.6,0x30241e,-29.8,7,-28,-.62);box(2,3,.2,0xdddddd,-32,1.5,-22.4);
+{const s=new THREE.Mesh(new THREE.CylinderGeometry(2,2,12,16),M(0x8a929a));s.position.set(-22,6,-30);scene.add(s);const d=new THREE.Mesh(new THREE.SphereGeometry(2,16,8,0,TAU,0,Math.PI/2),M(0x555d66));d.position.set(-22,12,-30);scene.add(d)}
+for(let i=0;i<34;i++){const x=(R()-.5)*110,z=(R()-.5)*110;if(Math.hypot(x,z)<14)continue;
+const h=2+R()*3;const tr=new THREE.Mesh(new THREE.CylinderGeometry(.3,.4,h,6),M(0x3a2a1a));tr.position.set(x,h/2,z);scene.add(tr);
+const l=new THREE.Mesh(new THREE.ConeGeometry(1.8+R(),5+R()*3,8),M(0x0f3a1c));l.position.set(x,h+2.5,z);scene.add(l)}
+for(let i=0;i<9;i++){const b=new THREE.Mesh(new THREE.CylinderGeometry(.9,.9,1.2,12),M(0xb59a4a));b.rotation.z=Math.PI/2;b.position.set(8+i*1.6%12+R()*20,.6,-12+R()*20);scene.add(b)}
+// saucer
+const S={x:0,y:10,z:10},sv={x:0,z:0},sau=new THREE.Group();
+{const d=new THREE.Mesh(new THREE.SphereGeometry(1,28,14),new THREE.MeshPhongMaterial({color:0xaab4c2,shininess:90}));d.scale.set(3.2,.65,3.2);sau.add(d);
+const dm=new THREE.Mesh(new THREE.SphereGeometry(1.3,20,12,0,TAU,0,Math.PI/2),new THREE.MeshPhongMaterial({color:0x66ffcc,emissive:0x0a5a44,transparent:true,opacity:.7}));dm.position.y=.3;sau.add(dm);
+const al=new THREE.Mesh(new THREE.SphereGeometry(.28,10,8),M(0x88dd88,0x226622));al.position.y=.6;sau.add(al)}
+const lights=new THREE.Group();for(let i=0;i<10;i++){const l=new THREE.Mesh(new THREE.SphereGeometry(.15,8,6),new THREE.MeshBasicMaterial({color:i%2?0xff4466:0xffee66}));const a=i/10*TAU;l.position.set(Math.cos(a)*2.7,-.1,Math.sin(a)*2.7);lights.add(l)}sau.add(lights);
+const glow=new THREE.PointLight(0x66ffee,1.3,45);glow.position.y=-1;sau.add(glow);scene.add(sau);
+const cone=new THREE.Mesh(new THREE.CylinderGeometry(.2,1,1,32,1,true),new THREE.MeshBasicMaterial({color:0x7dffd8,transparent:true,opacity:.2,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide}));scene.add(cone);
+const rm=c=>new THREE.MeshBasicMaterial({color:c,transparent:true,opacity:.8,side:THREE.DoubleSide,depthWrite:false});
+const ring=new THREE.Mesh(new THREE.RingGeometry(.93,1,48).rotateX(-Math.PI/2),rm(0x66ffee)),ring2=new THREE.Mesh(new THREE.RingGeometry(.85,1,40).rotateX(-Math.PI/2),rm(0xaaff44));
+scene.add(ring,ring2);
+// animals
+function mkCow(bull){const g=new THREE.Group(),bm=M(bull?0x4a2415:0xf2f2ee);
+const b=new THREE.Mesh(new THREE.BoxGeometry(.8,.9,1.6),bm);b.position.y=1.2;
+const h=new THREE.Mesh(new THREE.BoxGeometry(.5,.5,.6),M(bull?0x3a1a0f:0xe6e6e0));h.position.set(0,1.45,1.05);g.add(b,h);
+if(!bull){for(let i=0;i<2;i++){const p=new THREE.Mesh(new THREE.BoxGeometry(.82,.5,.45),M(0x1a1a1a));p.position.set((R()-.5)*.3,1.3+R()*.2,-.5+i*.9);g.add(p)}
+const n=new THREE.Mesh(new THREE.BoxGeometry(.3,.2,.05),M(0xe8a0a8));n.position.set(0,1.38,1.36);g.add(n)}
+else{[-1,1].forEach(s=>{const hn=new THREE.Mesh(new THREE.ConeGeometry(.08,.5,6),M(0xf0e8cc));hn.position.set(s*.3,1.75,1.0);hn.rotation.z=-s*1.1;g.add(hn);
+const e=new THREE.Mesh(new THREE.BoxGeometry(.08,.08,.05),M(0xff0000,0xff0000));e.position.set(s*.16,1.55,1.36);g.add(e)})}
+const legs=[];for(let i=0;i<4;i++){const l=new THREE.Mesh(new THREE.BoxGeometry(.18,.8,.18).translate(0,-.4,0),M(bull?0x2a1209:0x333333));l.position.set(i%2?.28:-.28,.8,i<2?.55:-.55);g.add(l);legs.push(l)}
+const t=new THREE.Mesh(new THREE.BoxGeometry(.06,.6,.06),M(0x222222));t.position.set(0,1.1,-.85);g.add(t);
+g.userData.legs=legs;g.userData.s=bull?1.4:1;g.scale.setScalar(g.userData.s);scene.add(g);return g}
+function mkCrow(){const g=new THREE.Group(),k=M(0x0b0b10);
+const b=new THREE.Mesh(new THREE.SphereGeometry(.25,10,8),k);b.scale.set(1,.9,1.9);const h=new THREE.Mesh(new THREE.SphereGeometry(.15,8,6),k);h.position.z=.5;
+const bk=new THREE.Mesh(new THREE.ConeGeometry(.06,.25,6),M(0x555555));bk.rotation.x=Math.PI/2;bk.position.z=.7;
+const wr=new THREE.Mesh(new THREE.BoxGeometry(1,.04,.4).translate(.5,0,0),k),wl=new THREE.Mesh(new THREE.BoxGeometry(1,.04,.4).translate(-.5,0,0),k);wr.position.x=.15;wl.position.x=-.15;
+g.add(b,h,bk,wr,wl);g.userData={wr,wl};g.rotation.order='YXZ';g.scale.setScalar(1.3);scene.add(g);return g}
+let cows,bulls,crows,tgt,scanT,score,shield,inv,time,running,over,beamOn,flashA,msgT,ambT;const TOT=8;
+function reset(){[...(cows||[]),...(bulls||[]),...(crows||[])].forEach(a=>scene.remove(a.m));
+cows=[];bulls=[];crows=[];
+for(let i=0;i<TOT;i++){const x=(R()-.5)*90,z=(R()-.5)*90;cows.push({m:mkCow(0),x,y:0,z,h:R()*TAU,state:'idle',t:R()*4,sp:0,lift:0,mooT:0})}
+for(let i=0;i<3;i++){let x,z;do{x=(R()-.5)*90;z=(R()-.5)*90}while(Math.hypot(x-S.x,z-S.z)<28);bulls.push({m:mkCow(1),x,z,h:R()*TAU,state:'wander',t:3,sp:0,cd:0,leap:0})}
+for(let i=0;i<5;i++)crows.push({m:mkCrow(),p:new THREE.Vector3((R()-.5)*80,8+R()*6,(R()-.5)*80),v:new THREE.Vector3(1,0,0),wp:new THREE.Vector3((R()-.5)*90,10,(R()-.5)*90),st:'patrol',cd:3+R()*4,at:0});
+Object.assign(S,{x:0,y:10,z:12});sv.x=sv.z=0;tgt=null;scanT=0;score=0;shield=100;inv=0;time=0;over=false;flashA=0;msgT=0;ambT=6}
+reset();
+// audio
+let AC,nz,master,beamG,bo1,bo2,whine,shB,engG,engO;
+function osc(t,f,d,v){const o=AC.createOscillator();o.type=t;o.frequency.value=f;const g=AC.createGain();g.gain.value=v;o.connect(g);g.connect(d);o.start();return o}
+function initAudio(){if(AC){AC.resume();return}AC=new(window.AudioContext||window.webkitAudioContext)();
+nz=AC.createBuffer(1,AC.sampleRate*2,AC.sampleRate);const d=nz.getChannelData(0);for(let i=0;i<d.length;i++)d[i]=R()*2-1;
+master=AC.createGain();master.gain.value=.8;master.connect(AC.destination);
+beamG=AC.createGain();beamG.gain.value=0;beamG.connect(master);
+const lp=AC.createBiquadFilter();lp.frequency.value=520;lp.connect(beamG);
+bo1=osc('sawtooth',62,lp,.5);bo2=osc('sawtooth',63.4,lp,.5);
+const w=osc('sine',190,beamG,.22),lf=AC.createOscillator(),lg=AC.createGain();lf.frequency.value=6;lg.gain.value=16;lf.connect(lg);lg.connect(w.frequency);lf.start();
+whine=osc('sine',500,beamG,.07);
+const s=AC.createBufferSource();s.buffer=nz;s.loop=true;shB=AC.createBiquadFilter();shB.type='bandpass';shB.frequency.value=2200;shB.Q.value=3;
+const tg=AC.createGain();tg.gain.value=.1;const l2=AC.createOscillator(),g2=AC.createGain();l2.frequency.value=11;g2.gain.value=.08;l2.connect(g2);g2.connect(tg.gain);l2.start();
+s.connect(shB);shB.connect(tg);tg.connect(beamG);s.start();
+engG=AC.createGain();engG.gain.value=.04;engG.connect(master);engO=osc('triangle',70,engG,1);osc('sine',35,engG,1);
+[[4400,16],[4750,19]].forEach(([f,r])=>{const cg=AC.createGain();cg.gain.value=.004;cg.connect(master);osc('sine',f,cg,1);const l=AC.createOscillator();l.type='square';l.frequency.value=r;const lg=AC.createGain();lg.gain.value=.004;l.connect(lg);lg.connect(cg.gain);l.start()})}
+const vol=(x,z,m)=>clamp(1-Math.hypot(x-S.x,z-S.z)/55,0,1)*m;
+function moo(v,p){if(!AC||v<.02)return;const t=AC.currentTime,D=1.6;
+const o=AC.createOscillator();o.type='sawtooth';o.frequency.setValueAtTime(92*p,t);o.frequency.linearRampToValueAtTime(138*p,t+.4);o.frequency.exponentialRampToValueAtTime(76*p,t+D);
+const l=AC.createOscillator(),lg=AC.createGain();l.frequency.value=5.5;lg.gain.value=3;l.connect(lg);lg.connect(o.frequency);
+const g=AC.createGain();g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(v,t+.15);g.gain.setValueAtTime(v,t+D*.7);g.gain.linearRampToValueAtTime(0,t+D);
+[[300,560,6,1],[900,1000,7,.6],[2300,2400,8,.15]].forEach(([f0,f1,q,a])=>{const b=AC.createBiquadFilter();b.type='bandpass';b.Q.value=q;b.frequency.setValueAtTime(f0,t);b.frequency.linearRampToValueAtTime(f1,t+.5);const fg=AC.createGain();fg.gain.value=a;o.connect(b);b.connect(fg);fg.connect(g)});
+g.connect(master);o.start(t);l.start(t);o.stop(t+D);l.stop(t+D)}
+function caw(v){if(!AC||v<.03)return;const q=.9+R()*.3;for(let i=0;i<3;i++){const t=AC.currentTime+i*.24;
+const o=AC.createOscillator();o.type='sawtooth';o.frequency.setValueAtTime(950*q,t);o.frequency.exponentialRampToValueAtTime(520*q,t+.18);
+const b=AC.createBiquadFilter();b.type='bandpass';b.frequency.value=1500;b.Q.value=2;const g=AC.createGain();g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(v,t+.02);g.gain.linearRampToValueAtTime(0,t+.2);
+o.connect(b);b.connect(g);g.connect(master);o.start(t);o.stop(t+.22)}}
+function noise(v,f,D,type){const t=AC.currentTime,s=AC.createBufferSource();s.buffer=nz;const b=AC.createBiquadFilter();b.type=type||'lowpass';b.frequency.value=f;const g=AC.createGain();g.gain.setValueAtTime(v,t);g.gain.exponentialRampToValueAtTime(.001,t+D);s.connect(b);b.connect(g);g.connect(master);s.start(t);s.stop(t+D)}
+function snort(v){if(AC&&v>.03)noise(v*1.2,900,.4)}
+function thump(){if(!AC)return;const t=AC.currentTime,o=AC.createOscillator(),g=AC.createGain();o.frequency.setValueAtTime(130,t);o.frequency.exponentialRampToValueAtTime(35,t+.3);g.gain.setValueAtTime(.9,t);g.gain.exponentialRampToValueAtTime(.001,t+.35);o.connect(g);g.connect(master);o.start(t);o.stop(t+.4);noise(.5,700,.25)}
+function zap(){if(!AC)return;const t=AC.currentTime,o=AC.createOscillator(),g=AC.createGain();o.frequency.setValueAtTime(250,t);o.frequency.exponentialRampToValueAtTime(2200,t+.35);g.gain.setValueAtTime(.3,t);g.gain.exponentialRampToValueAtTime(.001,t+.5);o.connect(g);g.connect(master);o.start(t);o.stop(t+.5);noise(.25,3000,.3,'highpass')}
+// input
+const keys={},ui={beam:0,up:0,dn:0,las:0},js={x:0,y:0};
+addEventListener('keydown',e=>{keys[e.code]=1;if(/Space|Arrow/.test(e.code))e.preventDefault()});addEventListener('keyup',e=>keys[e.code]=0);
+addEventListener('wheel',e=>{S.y=clamp(S.y+e.deltaY*.01,4,16)});
+function hold(id,k){const el=$(id),on=e=>{ui[k]=1;el.classList.add('on');e.preventDefault()},off=()=>{ui[k]=0;el.classList.remove('on')};el.addEventListener('pointerdown',on);['pointerup','pointercancel','pointerleave'].forEach(n=>el.addEventListener(n,off))}
+hold('bBeam','beam');hold('bLas','las');hold('bUp','up');hold('bDn','dn');
+const st=$('stick'),kn=$('knob');let jon=false;
+function mv(e){const r=st.getBoundingClientRect();let dx=(e.clientX-r.left-r.width/2)/(r.width/2),dy=(e.clientY-r.top-r.height/2)/(r.height/2);const l=Math.hypot(dx,dy);if(l>1){dx/=l;dy/=l}js.x=dx;js.y=dy;kn.style.transform=`translate(${dx*40}px,${dy*40}px)`}
+st.addEventListener('pointerdown',e=>{jon=true;st.setPointerCapture(e.pointerId);mv(e)});st.addEventListener('pointermove',e=>{if(jon)mv(e)});
+['pointerup','pointercancel'].forEach(n=>st.addEventListener(n,()=>{jon=false;js.x=js.y=0;kn.style.transform=''}));
+// helpers
+function msg(t,s){$('msg').textContent=t;msgT=s||2}
+const lz=new THREE.Mesh(new THREE.CylinderGeometry(.07,.07,1,6).rotateX(Math.PI/2),new THREE.MeshBasicMaterial({color:0xff3355,transparent:true,opacity:.9,blending:THREE.AdditiveBlending}));lz.visible=false;scene.add(lz);let lzT=0,lasCd=0;
+function pew(){if(!AC)return;const t=AC.currentTime,o=AC.createOscillator(),g=AC.createGain();o.type='sawtooth';o.frequency.setValueAtTime(1900,t);o.frequency.exponentialRampToValueAtTime(180,t+.22);g.gain.setValueAtTime(.22,t);g.gain.exponentialRampToValueAtTime(.001,t+.25);o.connect(g);g.connect(master);o.start(t);o.stop(t+.26)}
+function fire(){let b=null,bd=32;for(const c of crows){if(c.dead)continue;const d=c.p.distanceTo(sp3);if(d<bd){bd=d;b=c}}
+const a=new THREE.Vector3(S.x,S.y-.4,S.z),e=b?b.p.clone():new THREE.Vector3(S.x,S.y-.4,S.z-30);
+lz.position.copy(a).add(e).multiplyScalar(.5);lz.lookAt(e);lz.scale.set(1,1,a.distanceTo(e));lz.visible=true;lzT=.12;pew();
+if(b){b.dead=true;b.dt=7;b.m.visible=false;caw(.35);noise(.4,2500,.3,'highpass');msg('🎯 Crow shot down!',1.5)}}
+let jamT=0;function jam(s){jamT=s;flashA=.3;if(AC)noise(.6,3000,.5,'highpass');msg('⚡ Crow jammed the beam!',1.8)}
+function hurt(n){if(inv>0||over)return;shield=Math.max(0,shield-n);inv=1.2;flashA=.7;thump();if(shield<=0)end(false)}
+function end(win){over=true;running=false;$('ov').style.display='flex';$('ov').querySelector('h1').textContent=win?'🐄 Mission complete':'💥 Saucer down';
+$('ovt').textContent=win?`All ${TOT} cows abducted in ${time|0} seconds.`:`The herd got away – you abducted ${score}/${TOT} cows.`;$('go').textContent='Play again';if(win)zap()}
+function pick(BR){let b=null,bd=BR;for(const c of cows){if(c.gone||c.state==='lifting')continue;const d=Math.hypot(c.x-S.x,c.z-S.z);if(d<bd){bd=d;b=c}}return b}
+const sp3=new THREE.Vector3(),tmp=new THREE.Vector3();
+function legs(m,a){m.userData.legs.forEach((l,i)=>l.rotation.x=a*(i%3?-1:1))}
+function updCow(c,dt,sp,BR){
+if(c.state==='lifting'){
+ const ok=beamOn&&Math.hypot(c.x-S.x,c.z-S.z)<BR*1.4;
+ if(ok){c.y+=(3+c.lift*3)*dt;c.lift=clamp(c.y/(S.y-1.4),0,1);c.x+=(S.x-c.x)*dt*1.5;c.z+=(S.z-c.z)*dt*1.5;c.m.rotation.y+=dt*3;c.m.rotation.z=Math.sin(time*5)*.25;legs(c.m,Math.sin(time*14)*.7);
+  c.m.scale.setScalar(c.m.userData.s*(1-.55*c.lift));c.mooT-=dt;if(c.mooT<=0){moo(.55,1+R()*.15);c.mooT=1.7}
+  if(c.lift>=1){c.gone=true;scene.remove(c.m);score++;tgt=null;zap();msg(score<TOT?'Cow abducted! '+(TOT-score)+' to go':'',2);if(score>=TOT)end(true)}}
+ else{c.state='fall';c.m.rotation.z=0;c.m.scale.setScalar(c.m.userData.s);tgt=null}
+}else{
+ if(c.state==='fall'){c.y-=9*dt;if(c.y<=0){c.y=0;c.state='idle';c.t=2;thump&&0}c.sp=0}
+ else{c.t-=dt;
+  if(sp>6&&Math.hypot(c.x-S.x,c.z-S.z)<10&&c.state!=='flee'){c.state='flee';c.t=2.5;c.h=Math.atan2(c.x-S.x,c.z-S.z)+(R()-.5)}
+  if(c===tgt&&beamOn&&c.state==='idle'){c.t=Math.max(c.t,6);if(R()<(sp>5?.8:.01)*dt){c.state='walk';c.t=1.5+R()*2;c.h+=(R()-.5)*3}}
+  if(c.state==='idle'){c.sp=0;if(c.t<=0){c.state='walk';c.t=2+R()*4;c.h+=(R()-.5)*3}}
+  else if(c.state==='walk'){c.sp=1.1;if(c.t<=0){c.state='idle';c.t=2+R()*5}}
+  else if(c.state==='flee'){c.sp=4.5;if(c.t<=0){c.state='idle';c.t=1+R()*2}}
+  c.x+=Math.sin(c.h)*c.sp*dt;c.z+=Math.cos(c.h)*c.sp*dt;
+  if(Math.abs(c.x)>48||Math.abs(c.z)>48)c.h=Math.atan2(-c.x,-c.z);
+  c.m.rotation.y=c.h;legs(c.m,c.sp>0?Math.sin(time*c.sp*2.4)*.5:0)}}
+c.m.position.set(c.x,c.y,c.z)}
+function updBull(b,dt){const dx=S.x-b.x,dz=S.z-b.z,d=Math.hypot(dx,dz);b.cd-=dt;
+if(d<42){if(b.state!=='chase'){b.state='chase';snort(vol(b.x,b.z,.6));msg('🐂 Bull on the hunt!',1.5)}
+ const w=Math.atan2(dx,dz),df=((w-b.h+Math.PI)%TAU+TAU)%TAU-Math.PI;b.h+=clamp(df,-3*dt,3*dt);b.sp=d<2?0:6}
+else{if(b.state==='chase')b.state='wander';b.t-=dt;if(b.t<=0){b.sp=b.sp?0:1.2;b.h+=(R()-.5)*3;b.t=2+R()*4}}
+if(d<3.6&&S.y<7.5&&b.cd<=0&&!over){b.cd=2.2;b.leap=.6;hurt(20);moo(vol(b.x,b.z,.8)+.2,.6)}
+let y=0;if(b.leap>0){b.leap-=dt;y=Math.sin(b.leap/.6*Math.PI)*2.2}
+b.x+=Math.sin(b.h)*b.sp*dt;b.z+=Math.cos(b.h)*b.sp*dt;if(Math.abs(b.x)>50||Math.abs(b.z)>50)b.h=Math.atan2(-b.x,-b.z);
+b.m.position.set(b.x,y,b.z);b.m.rotation.y=b.h;legs(b.m,b.sp>0?Math.sin(time*b.sp*2.2)*.5:0)}
+function updCrow(c,dt){if(c.dead){c.dt-=dt;if(c.dt<=0){c.dead=false;c.m.visible=true;c.p.set((R()-.5)*90,10,(R()-.5)*90);c.st='patrol';c.cd=4}return}c.cd-=dt;const ds=c.p.distanceTo(sp3);
+if(c.st==='patrol'&&c.cd<=0&&ds<24){c.st='attack';c.at=6;caw(vol(c.p.x,c.p.z,.5));msg('🐦‍⬛ Crow incoming!',1.5)}
+let tg=c.wp,spd=5;
+if(c.st==='attack'){tg=sp3;spd=9.5;c.at-=dt;if(c.at<=0){c.st='patrol';c.cd=4}}else if(c.p.distanceTo(c.wp)<3)c.wp.set((R()-.5)*90,6+R()*9,(R()-.5)*90);
+tmp.copy(tg).sub(c.p).setLength(spd);c.v.lerp(tmp,Math.min(1,1.6*dt));c.p.addScaledVector(c.v,dt);c.p.y=clamp(c.p.y,3,18);
+if(c.st==='attack'&&Math.hypot(c.p.x-S.x,c.p.z-S.z)<3.1&&Math.abs(c.p.y-S.y)<1.6){jam(1.8);caw(.6);c.st='patrol';c.cd=5;c.wp.set(clamp(c.p.x+(c.p.x-S.x)*8,-50,50),10,clamp(c.p.z+(c.p.z-S.z)*8,-50,50))}
+c.m.position.copy(c.p);c.m.rotation.y=Math.atan2(c.v.x,c.v.z);c.m.rotation.x=-c.v.y*.08;const f=Math.sin(time*14+c.at)*.7;c.m.userData.wr.rotation.z=f;c.m.userData.wl.rotation.z=-f}
+function update(dt){
+time+=dt;inv-=dt;
+let mx=(keys.KeyD||keys.ArrowRight?1:0)-(keys.KeyA||keys.ArrowLeft?1:0)+js.x,mz=(keys.KeyS||keys.ArrowDown?1:0)-(keys.KeyW||keys.ArrowUp?1:0)+js.y;
+const l=Math.hypot(mx,mz);if(l>1){mx/=l;mz/=l}
+S.y=clamp(S.y+((keys.KeyE||ui.up?1:0)-(keys.KeyQ||ui.dn?1:0))*5*dt,4,16);
+jamT-=dt;beamOn=!!(keys.Space||keys.KeyB||ui.beam)&&jamT<=0;
+lasCd-=dt;if((keys.KeyF||keys.KeyJ||ui.las)&&lasCd<=0&&!over){lasCd=.45;sp3.set(S.x,S.y,S.z);fire()}if(lzT>0){lzT-=dt;if(lzT<=0)lz.visible=false}
+const k=Math.min(1,3*dt);sv.x+=(mx*14-sv.x)*k;sv.z+=(mz*14-sv.z)*k;
+S.x=clamp(S.x+sv.x*dt,-52,52);S.z=clamp(S.z+sv.z*dt,-52,52);const sp=Math.hypot(sv.x,sv.z);sp3.set(S.x,S.y,S.z);
+const BR=1.8+S.y*.28;
+if(beamOn){if(!tgt||tgt.gone||(tgt.state!=='lifting'&&Math.hypot(tgt.x-S.x,tgt.z-S.z)>BR)){tgt=pick(BR);scanT=0;if(tgt&&tgt.state!=='fall'){tgt.state='idle';tgt.sp=0;tgt.t=8}}}
+else if(tgt){tgt=null;scanT=0}
+if(tgt&&tgt.state!=='lifting'){if(tgt.sp>0){if(scanT>.3)msg('Cow moved – hold still!',1.2);scanT=0}else{scanT+=dt;if(scanT>=5){tgt.state='lifting';tgt.mooT=0;msg('Lifting… 🐄',2)}}}
+cows.forEach(c=>{if(!c.gone)updCow(c,dt,sp,BR)});bulls.forEach(b=>updBull(b,dt));crows.forEach(c=>updCrow(c,dt));
+// visuals
+sau.position.set(S.x,S.y+Math.sin(time*2)*.12,S.z);sau.rotation.z=-sv.x*.02;sau.rotation.x=sv.z*.02;lights.rotation.y+=dt*2.5;
+cone.visible=ring.visible=beamOn;ring2.visible=beamOn&&!!tgt;
+if(beamOn){const H=S.y-.3,fl=.85+Math.sin(time*30)*.15;cone.position.set(S.x,H/2,S.z);cone.scale.set(BR,H,BR);cone.material.opacity=.2*fl;ring.position.set(S.x,.08,S.z);ring.scale.setScalar(BR*(1+Math.sin(time*6)*.02))}
+const p=tgt?(tgt.state==='lifting'?1:scanT/5):0;
+if(tgt){ring2.position.set(tgt.x,tgt.y+.1,tgt.z);ring2.scale.setScalar(Math.max(.5,2.4*(1-p*.75)));ring2.material.color.setHSL(.5-p*.28,1,.6)}
+// hud
+$('sc').textContent=score+'/'+TOT;$('tm').textContent=time|0;$('sh').style.width=shield+'%';$('sh').style.background=shield<35?'var(--warn)':'var(--acc)';
+$('al').textContent=S.y.toFixed(0);$('br').textContent=BR.toFixed(1);
+const sw=$('scanw');sw.style.display=tgt?'block':'none';if(tgt){const lf=tgt.state==='lifting';$('scl').textContent=lf?'LIFTING…':'SCANNING '+scanT.toFixed(1)+' / 5.0 s';$('scb').style.width=(lf?tgt.lift:p)*100+'%'}
+else if(beamOn&&msgT<=0)msg('Beam on – hover slowly over a cow',.5);
+msgT-=dt;if(msgT<=0)$('msg').textContent='';flashA=Math.max(0,flashA-dt*1.5);$('flash').style.opacity=flashA;
+if(AC){const t=AC.currentTime,lf=tgt&&tgt.state==='lifting',pr=lf?1:p;
+beamG.gain.setTargetAtTime(beamOn?.4+pr*.15:0,t,.1);bo1.frequency.setTargetAtTime(62+pr*40+(lf?20:0),t,.2);bo2.frequency.setTargetAtTime(63.4+pr*40+(lf?20:0),t,.2);
+whine.frequency.setTargetAtTime(400+pr*1200,t,.2);shB.frequency.setTargetAtTime(1800+pr*2600,t,.2);
+engO.frequency.setTargetAtTime(60+sp*4,t,.1);engG.gain.setTargetAtTime(.04+sp*.003,t,.1);
+ambT-=dt;if(ambT<=0){ambT=7+R()*8;const c=cows[R()*cows.length|0];if(c&&!c.gone)moo(vol(c.x,c.z,.25),.95+R()*.2)}}
+}
+function frame(){requestAnimationFrame(frame);const dt=Math.min(.05,fr.tick());if(running)update(dt);
+cam.position.lerp(tmp.set(S.x,S.y*.45+7,S.z+11+S.y*.35),Math.min(1,4*dt));cam.lookAt(S.x,S.y*.3,S.z-3);ren.render(scene,cam)}
+const fr=new THREE.Clock();fr.tick=()=>fr.getDelta();
+$('go').onclick=()=>{initAudio();reset();jamT=0;running=true;$('ov').style.display='none';msg('Find a cow – fly slowly, then hold BEAM',3)};
+cam.position.set(0,12,22);frame();
+</script></body></html>
