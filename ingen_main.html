@@ -343,8 +343,8 @@ body.sizing iframe{pointer-events:none}
 <main class="desk">
 
 
-<section class="win"><div class="bar"><i class="box"></i><h2>1 · Weather map · <span id="wxPlace">Le Croisic</span></h2></div><div class="pane">
-<iframe class="map" id="wxMap" title="Windy rain radar, Le Croisic" loading="lazy" src="https://embed.windy.com/embed2.html?lat=47.292&amp;lon=-2.512&amp;detailLat=47.292&amp;detailLon=-2.512&amp;zoom=9&amp;level=surface&amp;overlay=radar&amp;product=radar&amp;menu=&amp;message=true&amp;marker=true&amp;calendar=now&amp;type=map&amp;location=coordinates&amp;metricWind=km%2Fh&amp;metricTemp=%C2%B0C&amp;radarRange=-1"></iframe>
+<section class="win"><div class="bar"><i class="box"></i><h2>1 · Weather map · <span id="wxPlace">locating…</span></h2></div><div class="pane">
+<iframe class="map" id="wxMap" title="Windy rain radar" loading="lazy" src="about:blank"></iframe>
 <p class="note">Map blank? <a id="wxLink" href="https://www.windy.com/47.292/-2.512" target="_blank" rel="noopener">Open Windy</a></p></div><div class="stamp"><span>Radar Windy</span><span>Live</span></div></section>
 
 <section class="win"><div class="bar"><i class="box"></i><h2>2 · Local news · <span id="nwPlace">locating…</span></h2></div><div class="pane"><ul id="nwList"><li>Locating you…</li></ul>
@@ -374,10 +374,11 @@ body.sizing iframe{pointer-events:none}
 <script>
 (function(){
 var $=function(i){return document.getElementById(i)};
-var HL=["Trump arrives in Manila for talks with Quad leaders","Pope Leo ends 12-day South America tour in Peru","US reportedly open to reopening Iran talks, Vance empowered to negotiate","Supreme Court rejects Trump appeal on diversity-related grant cuts","Russia and Ukraine hold first US-brokered talks since February in Abu Dhabi","Lithuania: US troop rotations to continue beyond latest deployment","Le Croisic: sunny, 14°C, rain chance 40%"];
-var cols=['#ffff00','#00ffff','#00ff00','#ffffff'];
-var tk=HL.map(function(h,i){return '<em style="color:'+cols[i%4]+'">'+h+'</em>'}).join('<u>&nbsp;&#9632;&nbsp;</u>');
-$('tk').innerHTML=tk+'<u>&nbsp;&#9632;&nbsp;</u>'+tk;
+var cols=['#ffff00','#00ffff','#00ff00','#ffffff'],tkNews=[],tkLoc='',tkSig='';
+function tkEsc(t){return String(t).replace(/[&<>]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;'}[c]})}
+function tkRender(){var arr=tkNews.concat(tkLoc?[tkLoc]:[]);if(!arr.length)arr=['Loading live headlines…'];var sig=arr.join('|');if(sig===tkSig)return;tkSig=sig;
+  var tk=arr.map(function(h,i){return '<em style="color:'+cols[i%4]+'">'+tkEsc(h)+'</em>'}).join('<u>&nbsp;&#9632;&nbsp;</u>');$('tk').innerHTML=tk+'<u>&nbsp;&#9632;&nbsp;</u>'+tk}
+tkRender();
 var mon=["January","February","March","April","May","June","July","August","September","October","November","December"];
 var now=new Date();
 function tick(){var d=new Date(),s=d.toLocaleDateString('en-GB',{weekday:'short',day:'2-digit',month:'short'})+' '+d.toLocaleTimeString('en-GB');
@@ -482,13 +483,17 @@ $('fPrev').onclick=function(){fGo(-1)};$('fNext').onclick=function(){fGo(1)};
 setInterval(function(){var r=fnext-Date.now();if(r<=0){fGo(1);r=18e4}$('fCnt').textContent=Math.floor(r/6e4)+':'+String(Math.floor(r%6e4/1e3)).padStart(2,'0')},1000);
 fShow();
 setInterval(function(){if(!document.hidden&&FEEDS[fi].q)fShow(true)},6e4);
+function tkLoad(){getFeed('https://news.google.com/rss?hl=en-GB&gl=GB&ceid=GB:en',45e3).then(function(items){
+    var n=items.slice(0,10).map(function(i){return i.title});if(n.length){tkNews=n;tkRender()}
+  }).catch(function(){if(!tkNews.length){tkNews=['Live headlines unavailable right now - retrying'];tkSig='';tkRender();tkNews=[];tkSig=''}})}
+tkLoad();setInterval(function(){if(!document.hidden)tkLoad()},12e4);
 /* Location-aware weather map + local news */
 var lastLoc=null;
 function setPlace(lat,lon,place,cc){
   lastLoc={lat:lat,lon:lon,place:place};
   $('menuLoc').textContent=place;
   fetch('https://api.open-meteo.com/v1/forecast?latitude='+lat.toFixed(3)+'&longitude='+lon.toFixed(3)+'&current=temperature_2m').then(function(r){return r.json()}).then(function(j){
-    var t=j&&j.current&&j.current.temperature_2m;if(typeof t==='number')$('menuLoc').textContent=place+' · '+Math.round(t)+'\u00b0C';
+    var t=j&&j.current&&j.current.temperature_2m;if(typeof t==='number'){$('menuLoc').textContent=place+' · '+Math.round(t)+'\u00b0C';tkLoc=place+': '+Math.round(t)+'\u00b0C now';tkRender()}
   }).catch(function(){});
   $('nwPlace').textContent=place;$('wxPlace').textContent=place;
   var la=lat.toFixed(3),lo=lon.toFixed(3);
@@ -513,7 +518,7 @@ function loadNews(silent){
   }).catch(function(){if(silent&&ul.querySelector('li a'))return;ul.innerHTML='<li>Could not load headlines for '+place.replace(/[<&]/g,'')+'.</li>';$('nwNote').textContent='Feed unavailable: use the button below.'});
 }
 setInterval(function(){if(!document.hidden)loadNews(true)},12e4);
-document.addEventListener('visibilitychange',function(){if(!document.hidden){loadNews(true);if(FEEDS[fi].q)fShow(true)}});
+document.addEventListener('visibilitychange',function(){if(!document.hidden){tkLoad();loadNews(true);if(FEEDS[fi].q)fShow(true)}});
 function resolve(lat,lon,cc){
   fetch('https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=10&accept-language=fr&lat='+lat+'&lon='+lon).then(function(r){return r.json()}).then(function(j){
     var a=j.address||{};setPlace(lat,lon,a.city||a.town||a.village||a.municipality||a.county||'Your area',a.country_code||cc);
