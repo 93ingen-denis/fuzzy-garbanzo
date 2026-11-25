@@ -330,6 +330,7 @@ html.th-ingen .xbtn{border-color:var(--ink)}
 body.sizing,body.sizing .rsz{cursor:nwse-resize;user-select:none}
 body.sizing iframe{pointer-events:none}
 </style>
+<style id="agofx">#nwList .ago,#hist .ago{font-size:12px;color:var(--muted);white-space:nowrap}</style>
 <style id="mbfix">@media (max-width:640px){html,body{overflow-x:hidden}.menubar{height:auto!important;position:sticky}.menubar .in{flex-wrap:wrap!important;height:auto!important;padding-top:2px;padding-bottom:2px;row-gap:2px}.menubar .items{flex-wrap:wrap!important;flex:1 1 100%;order:3;height:auto!important;overflow:visible!important}.menubar .mbtn,.menubar .items>*{white-space:nowrap}.menubar .clock{margin-left:auto}}</style>
 </head><body>
 <header class="menubar"><div class="in"><span class="app">INGEN</span><nav class="items" id="menus" aria-label="Menus"></nav><a class="mbtn" href="ingen_lib.html" title="Jurassic Park e-book and YouTube">Library</a><a class="mbtn" href="ingen_lang.html" title="Japanese, German, Spanish and Portuguese">Languages Lab</a><a class="mbtn" href="ingen_disk.html" title="Hard disk: files on this site">Hard Disk</a><button type="button" class="mbtn" id="radio" aria-pressed="false" title="Play or stop BBC World Service live radio">&#9835; BBC News</button><span class="rst" id="radioSt" role="status"></span><span class="loc" id="menuLoc"></span><span class="clock" id="menuClock">&nbsp;</span></div></header>
@@ -422,43 +423,50 @@ $('note').addEventListener('keydown',function(e){if((e.ctrlKey||e.metaKey)&&e.ke
 /* RSS helper: tries three CORS-friendly routes in turn and caches results */
 var rssCache={};
 function parseXml(t){var d=new DOMParser().parseFromString(t,'text/xml'),out=[];
-  Array.prototype.forEach.call(d.querySelectorAll('item'),function(it){var ti=it.querySelector('title'),li=it.querySelector('link');if(ti&&li)out.push({title:ti.textContent,link:li.textContent})});
+  Array.prototype.forEach.call(d.querySelectorAll('item'),function(it){var ti=it.querySelector('title'),li=it.querySelector('link');var pd=it.querySelector('pubDate'),ts=pd?Date.parse(pd.textContent):NaN;if(ti&&li)out.push({title:ti.textContent,link:li.textContent,ts:isNaN(ts)?0:ts})});
   if(!out.length)throw new Error('no items');return out}
 var feedQ=Promise.resolve();
-function getFeed(rss){
-  var c=rssCache[rss];if(c&&Date.now()-c.t<6e5)return Promise.resolve(c.items);
+function getFeed(rss,ttl){
+  var c=rssCache[rss];if(c&&Date.now()-c.t<(ttl==null?45e3:ttl))return Promise.resolve(c.items);
+  var u=rss+(rss.indexOf('?')<0?'?':'&')+'_='+Math.floor(Date.now()/3e4);
   var routes=[
-    function(){return fetch('https://api.rss2json.com/v1/api.json?rss_url='+encodeURIComponent(rss)).then(function(r){return r.json()}).then(function(j){if(!j.items||!j.items.length)throw new Error('empty');return j.items.map(function(i){return{title:i.title,link:i.link}})})},
-    function(){return fetch('https://api.allorigins.win/raw?url='+encodeURIComponent(rss)).then(function(r){if(!r.ok)throw new Error(r.status);return r.text()}).then(parseXml)},
-    function(){return fetch('https://corsproxy.io/?url='+encodeURIComponent(rss)).then(function(r){if(!r.ok)throw new Error(r.status);return r.text()}).then(parseXml)}];
+    function(){return fetch('https://api.allorigins.win/raw?url='+encodeURIComponent(u)).then(function(r){if(!r.ok)throw new Error(r.status);return r.text()}).then(parseXml)},
+    function(){return fetch('https://corsproxy.io/?url='+encodeURIComponent(u)).then(function(r){if(!r.ok)throw new Error(r.status);return r.text()}).then(parseXml)},
+    function(){return fetch('https://api.rss2json.com/v1/api.json?rss_url='+encodeURIComponent(u)+'&t='+Date.now()).then(function(r){return r.json()}).then(function(j){if(!j.items||!j.items.length)throw new Error('empty');return j.items.map(function(i){var t=Date.parse(String(i.pubDate||'').replace(' ','T')+'Z');return{title:i.title,link:i.link,ts:isNaN(t)?0:t}})})}];
   function once(){var p=Promise.reject();routes.forEach(function(rt){p=p.catch(rt)});return p}
   function wait(ms){return new Promise(function(r){setTimeout(r,ms)})}
-  var job=feedQ.then(function(){return once().catch(function(){return wait(4000).then(once)})}).then(function(items){rssCache[rss]={t:Date.now(),items:items};return items},function(e){if(c)return c.items;throw e});
-  feedQ=job.catch(function(){}).then(function(){return wait(800)});
+  var job=feedQ.then(function(){return once().catch(function(){return wait(3000).then(once)})}).then(function(items){
+    items=items.map(function(x,i){x.i=i;return x}).sort(function(a,b){return (b.ts-a.ts)||(a.i-b.i)});
+    rssCache[rss]={t:Date.now(),items:items};return items},function(e){if(c)return c.items;throw e});
+  feedQ=job.catch(function(){}).then(function(){return wait(600)});
   return job;
 }
+function ago(ts){if(!ts)return '';var m=Math.max(0,Math.round((Date.now()-ts)/6e4));return m<1?'just now':m<60?m+' min ago':m<1440?Math.floor(m/60)+' h ago':Math.floor(m/1440)+' d ago'}
+function agoSpan(ts){if(!ts)return null;var s=document.createElement('span');s.className='ago';s.dataset.ts=ts;s.textContent=' · '+ago(ts);return s}
+setInterval(function(){[].forEach.call(document.querySelectorAll('.ago[data-ts]'),function(s){s.textContent=' · '+ago(+s.dataset.ts)})},3e4);
+function hms(){return new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit',second:'2-digit'})}
 /* Window 3: rotates every 3 minutes between three feeds */
 var FEEDS=[
-  {name:'Tech & Cyber news',q:'cybersecurity technology'},
-  {name:'Market news',q:'stock market'},
+  {name:'Tech & Cyber news',q:'cybersecurity technology when:1d'},
+  {name:'Market news',q:'stock market when:1d'},
   {name:'Today in history'}],
   fi=0,fnext=Date.now()+18e4,fseq=0;
 function fMsg(t){var p=$('hist');p.innerHTML='';var n=document.createElement('p');n.className='note';n.textContent=t;p.appendChild(n)}
-function fList(items,srcText){
+function fList(items,srcText,live){
   var p=$('hist');p.innerHTML='';var ul=document.createElement('ul');
   items.forEach(function(it){var li=document.createElement('li');
-    if(it.href&&/^https?:\/\//.test(it.href)){var a=document.createElement('a');a.href=it.href;a.target='_blank';a.rel='noopener';a.textContent=it.text;li.appendChild(a)}else li.textContent=it.text;
+    if(it.href&&/^https?:\/\//.test(it.href)){var a=document.createElement('a');a.href=it.href;a.target='_blank';a.rel='noopener';a.textContent=it.text;li.appendChild(a)}else li.textContent=it.text;var ag=agoSpan(it.ts);if(ag)li.appendChild(ag);
     ul.appendChild(li)});
-  p.appendChild(ul);$('hd').textContent=srcText+' · '+new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
+  p.appendChild(ul);$('hd').textContent=srcText+' · updated '+hms()+(live?' · live, every minute':'');
 }
-function fShow(){
-  var f=FEEDS[fi],id=++fseq;$('fName').textContent=f.name;fMsg('Loading…');
+function fShow(silent){
+  var f=FEEDS[fi],id=++fseq;$('fName').textContent=f.name;if(!silent||!$('hist').querySelector('li'))fMsg('Loading…');
   if(f.q){
     var rss='https://news.google.com/rss/search?q='+encodeURIComponent(f.q)+'&hl=en-US&gl=US&ceid=US:en';
-    getFeed(rss).then(function(items){
+    getFeed(rss,45e3).then(function(items){
       if(id!==fseq)return;
-      fList(items.slice(0,6).map(function(i){return{text:i.title,href:i.link}}),'Google News');
-    }).catch(function(){if(id===fseq){fMsg('Could not load headlines right now.');$('hd').textContent='Feed unavailable'}});
+      fList(items.slice(0,6).map(function(i){return{text:i.title,href:i.link,ts:i.ts}}),'Google News',true);
+    }).catch(function(){if(id===fseq&&!(silent&&$('hist').querySelector('li'))){fMsg('Could not load headlines right now.');$('hd').textContent='Feed unavailable'}});
   }else{
     var mm=String(now.getMonth()+1).padStart(2,'0'),dd=String(now.getDate()).padStart(2,'0');
     fetch('https://en.wikipedia.org/api/rest_v1/feed/onthisday/events/'+mm+'/'+dd).then(function(r){return r.json()}).then(function(j){
@@ -473,6 +481,7 @@ function fGo(d){fi=(fi+d+FEEDS.length)%FEEDS.length;fnext=Date.now()+18e4;fShow(
 $('fPrev').onclick=function(){fGo(-1)};$('fNext').onclick=function(){fGo(1)};
 setInterval(function(){var r=fnext-Date.now();if(r<=0){fGo(1);r=18e4}$('fCnt').textContent=Math.floor(r/6e4)+':'+String(Math.floor(r%6e4/1e3)).padStart(2,'0')},1000);
 fShow();
+setInterval(function(){if(!document.hidden&&FEEDS[fi].q)fShow(true)},6e4);
 /* Location-aware weather map + local news */
 var lastLoc=null;
 function setPlace(lat,lon,place,cc){
@@ -489,16 +498,22 @@ function setPlace(lat,lon,place,cc){
       ce=fr?'FR:fr':c+':en',rss='https://news.google.com/rss/search?q='+q+'&hl='+hl+'&gl='+c+'&ceid='+ce;
   $('nwLink').href='https://news.google.com/search?q='+q+'&hl='+hl+'&gl='+c+'&ceid='+ce;
   $('nwSrc').textContent='Google News · '+place;
-  var ul=$('nwList');ul.innerHTML='<li>Loading…</li>';
-  getFeed(rss).then(function(items){
-    ul.innerHTML='';
-    items.slice(0,6).forEach(function(it){
-      if(!/^https?:\/\//.test(it.link))return;
-      var li=document.createElement('li'),a=document.createElement('a');
-      a.href=it.link;a.target='_blank';a.rel='noopener';a.textContent=it.title;li.appendChild(a);ul.appendChild(li)});
-    $('nwNote').textContent='Updated '+new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})+' · follows your device location.';
-  }).catch(function(){ul.innerHTML='<li>Could not load headlines for '+place.replace(/[<&]/g,'')+'.</li>';$('nwNote').textContent='Feed unavailable: use the button below.'});
+  lastNews={rss:rss,place:place};loadNews(false);
 }
+var lastNews=null;
+function loadNews(silent){
+  if(!lastNews)return;var rss=lastNews.rss,place=lastNews.place,ul=$('nwList');
+  if(!silent||!ul.querySelector('li a'))ul.innerHTML='<li>Loading…</li>';
+  getFeed(rss,45e3).then(function(items){
+    ul.innerHTML='';
+    items.filter(function(it){return /^https?:\/\//.test(it.link)}).slice(0,6).forEach(function(it){
+      var li=document.createElement('li'),a=document.createElement('a');
+      a.href=it.link;a.target='_blank';a.rel='noopener';a.textContent=it.title;li.appendChild(a);var ag=agoSpan(it.ts);if(ag)li.appendChild(ag);ul.appendChild(li)});
+    $('nwNote').textContent='Updated '+hms()+' · live: refreshes every 2 min · follows your device location.';
+  }).catch(function(){if(silent&&ul.querySelector('li a'))return;ul.innerHTML='<li>Could not load headlines for '+place.replace(/[<&]/g,'')+'.</li>';$('nwNote').textContent='Feed unavailable: use the button below.'});
+}
+setInterval(function(){if(!document.hidden)loadNews(true)},12e4);
+document.addEventListener('visibilitychange',function(){if(!document.hidden){loadNews(true);if(FEEDS[fi].q)fShow(true)}});
 function resolve(lat,lon,cc){
   fetch('https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=10&accept-language=fr&lat='+lat+'&lon='+lon).then(function(r){return r.json()}).then(function(j){
     var a=j.address||{};setPlace(lat,lon,a.city||a.town||a.village||a.municipality||a.county||'Your area',a.country_code||cc);
