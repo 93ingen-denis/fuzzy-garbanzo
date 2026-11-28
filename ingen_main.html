@@ -206,6 +206,8 @@ body.inv{filter:invert(1)}
   .desk{flex:1;min-height:0;width:100%;max-width:none;margin:0;padding:10px 12px 12px;gap:10px;
     grid-template-columns:repeat(5,minmax(0,1fr));grid-template-rows:repeat(2,minmax(0,1fr))}
   #camWin{grid-column:span 2}
+  .desk.camup #camWin{grid-column:4/6;grid-row:1/3;margin-top:var(--cu,34px)}
+  .desk.camup .win.cal4{grid-column:4;grid-row:1}.desk.camup .win.cal5{grid-column:5;grid-row:1}
   .win{min-height:0;overflow:hidden;box-shadow:3px 3px 0 var(--ink)}
   .bar{height:20px;flex:none}.bar h2{font:700 13px/16px var(--ui)}
   .pane{overflow:auto;padding:6px 10px;gap:5px;min-height:0}
@@ -369,7 +371,7 @@ body.sizing iframe{pointer-events:none}
 <section class="win" id="camWin"><div class="bar"><i class="box"></i><h2>9 · Webcam · <span id="camName">Tokyo</span></h2></div><div class="pane">
 <div class="cam" id="camBox"><div class="tag" id="camTag">TOKYO</div><iframe id="camFrame" title="Live webcam" allow="autoplay; fullscreen" allowfullscreen hidden style="position:absolute;inset:0;width:100%;height:100%;border:0;background:#000"></iframe></div>
 <p class="note" id="camInfo"></p>
-<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="kbtn" id="camPrev">&lt; Prev</button><button class="kbtn" id="camNext">Next &gt;</button></div></div><div class="stamp"><span>Changes every 5 minutes</span><span id="camCount"></span></div></section>
+<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="kbtn" id="camPrev">&lt; Prev</button><button class="kbtn" id="camNext">Next &gt;</button></div></div><div class="stamp"><span>Rotates every 5 min · build 28 Nov-e</span><span id="camCount"></span></div></section>
 </main>
 <script>
 (function(){
@@ -407,7 +409,7 @@ var Q=["“Life finds a way.” (Jurassic Park)","Theme of Jurassic Park: comple
 var hr=Math.floor(Date.now()/36e5);$('dino').textContent=D[hr%D.length];$('mc').textContent=Q[hr%Q.length];
 function yt(id){return 'https://www.youtube-nocookie.com/embed/'+id+'?autoplay=1&mute=1&playsinline=1&rel=0'}
 function ytLive(ch){return 'https://www.youtube-nocookie.com/embed/live_stream?channel='+ch+'&autoplay=1&mute=1&playsinline=1&rel=0'}
-var camsrc=[["Paris · Eiffel Tower","https://vision-environnement.com/live/player/V3/pariscese.php"],["Montpellier · Pont Zuccarelli","https://pv.viewsurf.com/788/Montpellier-Mairie-Pont-Jean-Zuccarelli?wmode=transparent"]];
+var camsrc=[["Paris · Eiffel Tower","https://vision-environnement.com/live/player/V3/pariscese.php"],["Montpellier · Pont Zuccarelli","https://pv.viewsurf.com/788/Montpellier-Mairie-Pont-Jean-Zuccarelli?wmode=transparent"],["Tokyo · Ariake Junction","https://www.vision-environnement.com/live/player/tokyo-ariake-junction0.php"],["Tokyo · Kabukicho","https://www.vision-environnement.com/live/player/kabuchico0.php"],["Germany · Bad Salzungen Stork Nest","https://www.vision-environnement.com/live/player/badsalzungen0.php"],["Spain · Lloret de Mar","https://www.vision-environnement.com/live/player/lloret0.php"]];
 var ci=0,cnext=Date.now()+3e5;
 function cshow(){var c=camsrc[ci],n=camsrc[(ci+1)%camsrc.length],f=$('camFrame');f.src=c[1];f.hidden=false;$('camName').textContent=c[0];$('camTag').innerHTML=c[0].toUpperCase()+'<br>LIVE CAM '+(ci+1)+'/'+camsrc.length;$('camInfo').textContent='Next: '+n[0]+'. Black picture? Press Next.'}
 function cgo(d){ci=(ci+d+camsrc.length)%camsrc.length;cnext=Date.now()+3e5;cshow()}
@@ -593,11 +595,22 @@ document.addEventListener('click',closeM);document.addEventListener('keydown',fu
 var wins=[].slice.call(document.querySelectorAll('.win')),KEY='ingen-win',st={},z=10;
 try{st=JSON.parse(localStorage.getItem(KEY)||'{}')||{}}catch(e){st={}}
 function save(){try{localStorage.setItem(KEY,JSON.stringify(st))}catch(e){}}
+function camup(){var d=document.querySelector('.desk'),c=null,k=null,cam=document.getElementById('camWin');
+  wins.forEach(function(w,i){var t=(w.querySelector('h2')||{}).textContent||'';
+    if(/Calendar/.test(t)){w.classList.add('cal4');c=w;rec(i).c;k=(k===null?1:k)}
+    if(/Calculator/.test(t))w.classList.add('cal5')});
+  var a=document.querySelector('.cal4'),b=document.querySelector('.cal5');
+  var both=a&&b&&a.classList.contains('shut')&&b.classList.contains('shut')&&cam&&!cam.classList.contains('shut')&&!cam.classList.contains('big');
+  d.classList.toggle('camup',!!both);
+  if(both){var g=parseFloat(getComputedStyle(d).rowGap)||10;d.style.setProperty('--cu',(a.offsetHeight+g)+'px')}}
+/* Launch defaults: Calendar and Calculator collapsed, Webcam open */
+function dflt(){wins.forEach(function(w,i){var t=(w.querySelector('h2')||{}).textContent||'';
+  if(/Calendar|Calculator/.test(t))rec(i).c=true;else if(w.id==='camWin')rec(i).c=false})}
 function rec(i){return st[i]||(st[i]={x:0,y:0,c:false})}
 function paint(w,i){var s=rec(i);w.style.transform=(s.x||s.y)?'translate('+s.x+'px,'+s.y+'px)':'';
   var sz=!s.c&&s.w&&s.h;w.style.width=sz?s.w+'px':'';w.style.height=sz?s.h+'px':'';w.classList.toggle('rsd',!!sz);
   w.classList.toggle('shut',!!s.c);var b=w.querySelector('.box');
-  b.setAttribute('aria-expanded',s.c?'false':'true');b.setAttribute('aria-label',(s.c?'Expand ':'Collapse ')+(w.querySelector('h2').textContent||'window'))}
+  setTimeout(camup,0);  b.setAttribute('aria-expanded',s.c?'false':'true');b.setAttribute('aria-label',(s.c?'Expand ':'Collapse ')+(w.querySelector('h2').textContent||'window'))}
 function front(w){w.style.zIndex=++z;
   if(z>45){var o=wins.filter(function(x){return x.style.zIndex}).sort(function(a,b){return a.style.zIndex-b.style.zIndex});
     o.forEach(function(x,k){x.style.zIndex=10+k});z=10+o.length}}
@@ -614,6 +627,7 @@ function big(w,x){var on=!w.classList.contains('big');
   x.setAttribute('aria-label',on?'Restore window size':'Expand window to full screen');
   setTimeout(function(){window.dispatchEvent(new Event('resize'))},60)}
 document.addEventListener('keydown',function(e){if(e.key==='Escape'){var b=document.querySelector('.win.big');if(b){b.classList.remove('big');document.body.classList.remove('hasbig');setTimeout(function(){window.dispatchEvent(new Event('resize'))},60)}}});
+dflt();
 wins.forEach(function(w,i){
   var bar=w.querySelector('.bar'),box=w.querySelector('.box');if(!bar||!box)return;
   box.setAttribute('role','button');box.setAttribute('tabindex','0');
@@ -645,11 +659,11 @@ wins.forEach(function(w,i){
     x.addEventListener('click',function(e){e.stopPropagation();big(w,x)});bar.appendChild(x)})();
   paint(w,i);
 });
-window.addEventListener('resize',function(){wins.forEach(clamp)});
+window.addEventListener('resize',function(){wins.forEach(clamp);camup()});
 window.INGENWIN={
   theme:function(n){document.documentElement.classList.toggle('th-ingen',n==='ingen');try{localStorage.setItem('ingen-theme',n)}catch(e){}},
   shutAll:function(v){wins.forEach(function(w,i){rec(i).c=v;paint(w,i)});save()},
-  reset:function(){st={};wins.forEach(function(w,i){paint(w,i);w.style.zIndex=''});z=10;save()}
+  reset:function(){st={};dflt();wins.forEach(function(w,i){paint(w,i);w.style.zIndex=''});z=10;save()}
 };
 })();
 </script>
